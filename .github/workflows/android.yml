@@ -1,7 +1,7 @@
 name: Android CI (Compilar APK)
 
 on:
-    workflow_dispatch:
+  workflow_dispatch:
 
 jobs:
   build:
@@ -23,6 +23,11 @@ jobs:
     # 3. Dá permissão de execução para o script do Gradle
     - name: Dar permissão ao Gradlew
       run: chmod +x ./gradlew
+
+    # [PASSO ADICIONADO]: Gera a Keystore de Debug na raiz do projeto para o seu build.gradle.kts encontrar
+    - name: Gerar Keystore de Debug na Raiz do Projeto
+      run: |
+        keytool -genkey -v -keystore ./debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
 
     # 4. Executa a compilação do APK de teste/debug
     - name: Compilar APK de Debug
