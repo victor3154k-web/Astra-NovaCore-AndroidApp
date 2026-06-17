@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item
+        android:width="101dp"
+        android:height="101dp"
+        android:drawable="@drawable/anc_play_icon_1781702460435"
+        android:gravity="center" />
+</layer-list>
