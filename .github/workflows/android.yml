@@ -1,0 +1,39 @@
+name: Android CI (Compilar APK)
+
+on:
+  push:
+    branches: [ "main" ] # Altere para "master" se a sua branch principal tiver esse nome
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    # 1. Baixa o código do repositório para a máquina virtual do GitHub
+    - name: Checkout do código
+      uses: actions/checkout@v4
+
+    # 2. Configura o ambiente Java (essencial para compilar Kotlin/Android)
+    - name: Configurar o JDK 17
+      uses: actions/setup-java@v4
+      with:
+        distribution: 'zulu' # Distribuição recomendada pelo Google
+        java-version: '17'   # Versão padrão para a maioria dos projetos Android modernos
+        cache: 'gradle'      # Ativa o cache para as próximas compilações serem bem mais rápidas
+
+    # 3. Dá permissão de execução para o script do Gradle
+    - name: Dar permissão ao Gradlew
+      run: chmod +x ./gradlew
+
+    # 4. Executa a compilação do APK de teste/debug
+    - name: Compilar APK de Debug
+      run: ./gradlew assembleDebug
+
+    # 5. Salva o APK gerado para você poder baixar no painel do GitHub
+    - name: Salvar o APK gerado (Artifact)
+      uses: actions/upload-artifact@v4
+      with:
+        name: app-debug-apk
+        path: app/build/outputs/apk/debug/app-debug.apk
