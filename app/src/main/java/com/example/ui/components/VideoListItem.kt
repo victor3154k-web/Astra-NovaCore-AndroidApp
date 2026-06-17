@@ -37,7 +37,8 @@ fun VideoListItem(
     video: SavedVideo,
     onVideoClick: () -> Unit,
     onDeleteClick: () -> Unit,
-    isGridView: Boolean = false
+    isGridView: Boolean = false,
+    tintColor: Color = GoldMetallic
 ) {
     val context = LocalContext.current
     
@@ -78,8 +79,8 @@ fun VideoListItem(
                         Icon(
                             imageVector = Icons.Default.PlayArrow,
                             contentDescription = "Sem Miniatura",
-                            tint = GoldMetallic.copy(alpha = 0.8f),
-                            modifier = Modifier.size(36.dp)
+                            tint = tintColor.copy(alpha = 0.8f),
+                            modifier = Modifier.size(38.dp)
                         )
                     }
                 }
@@ -95,7 +96,7 @@ fun VideoListItem(
                     Text(
                         text = formatDuration(video.durationMs),
                         color = Color.White,
-                        fontSize = 10.sp,
+                        fontSize = 11.sp,
                         fontWeight = FontWeight.Bold
                     )
                 }
@@ -106,7 +107,7 @@ fun VideoListItem(
             Text(
                 text = video.title,
                 color = Color.White,
-                fontSize = 13.sp,
+                fontSize = 15.sp,
                 fontWeight = FontWeight.SemiBold,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
@@ -122,7 +123,7 @@ fun VideoListItem(
                 Text(
                     text = formatSize(video.sizeBytes),
                     color = MediumGray,
-                    fontSize = 11.sp
+                    fontSize = 12.sp
                 )
                 
                 Row(
@@ -133,8 +134,8 @@ fun VideoListItem(
                         Icon(
                             imageVector = Icons.Default.Subtitles,
                             contentDescription = "Legendas",
-                            tint = GoldMetallic,
-                            modifier = Modifier.size(12.dp)
+                            tint = tintColor,
+                            modifier = Modifier.size(13.dp)
                         )
                     }
                     IconButton(
@@ -158,16 +159,16 @@ fun VideoListItem(
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(8.dp))
                 .clickable { onVideoClick() }
-                .padding(vertical = 10.dp, horizontal = 4.dp),
+                .padding(vertical = 12.dp, horizontal = 4.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Thumbnail / Icon
+            // Thumbnail / Icon - Enlarge standard thumbnail layout slightly for robust readability
             Box(
                 modifier = Modifier
-                    .size(width = 110.dp, height = 66.dp)
-                    .clip(RoundedCornerShape(6.dp))
+                    .size(width = 125.dp, height = 75.dp)
+                    .clip(RoundedCornerShape(8.dp))
                     .background(Color.DarkGray.copy(alpha = 0.4f))
-                    .border(0.5.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(6.dp))
+                    .border(0.5.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(8.dp))
             ) {
                 if (thumbnailFile.exists()) {
                     Image(
@@ -217,11 +218,11 @@ fun VideoListItem(
                 Text(
                     text = video.title,
                     color = Color.White,
-                    fontSize = 14.sp,
+                    fontSize = 16.sp,
                     fontWeight = FontWeight.Medium,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
-                    lineHeight = 18.sp
+                    lineHeight = 20.sp
                 )
 
                 Spacer(modifier = Modifier.height(4.dp))
@@ -233,7 +234,7 @@ fun VideoListItem(
                     Text(
                         text = formatSize(video.sizeBytes),
                         color = MediumGray,
-                        fontSize = 11.sp
+                        fontSize = 12.sp
                     )
                     
                     if (video.srtPath1 != null || video.srtPath2 != null) {
@@ -244,13 +245,13 @@ fun VideoListItem(
                             Icon(
                                 imageVector = Icons.Default.Subtitles,
                                 contentDescription = "Dual Legendas",
-                                tint = GoldMetallic,
-                                modifier = Modifier.size(11.dp)
+                                tint = tintColor,
+                                modifier = Modifier.size(12.dp)
                             )
                             Text(
                                 text = "DUAL",
-                                color = GoldMetallic,
-                                fontSize = 9.sp,
+                                color = tintColor,
+                                fontSize = 10.sp,
                                 fontWeight = FontWeight.Bold
                             )
                         }
@@ -264,7 +265,7 @@ fun VideoListItem(
                         Text(
                             text = video.folderName,
                             color = MediumGray,
-                            fontSize = 9.sp
+                            fontSize = 10.sp
                         )
                     }
                 }

@@ -1,6 +1,7 @@
 package com.example.ui
 
 import android.app.Application
+import android.content.Context
 import android.net.Uri
 import android.util.Log
 import androidx.lifecycle.AndroidViewModel
@@ -11,6 +12,8 @@ import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import okhttp3.OkHttpClient
+import okhttp3.Request
 
 class VideoViewModel(application: Application) : AndroidViewModel(application) {
     private val db = VideoDatabase.getDatabase(application)
@@ -78,17 +81,163 @@ class VideoViewModel(application: Application) : AndroidViewModel(application) {
     private val _srtFontFamilyName = MutableStateFlow("SansSerif") // SansSerif, Monospace, Serif
     val srtFontFamilyName: StateFlow<String> = _srtFontFamilyName.asStateFlow()
 
+    // Theme state: "gold", "led_warm", "led_cold"
+    private val prefs = application.getSharedPreferences("anc_play_prefs", Context.MODE_PRIVATE)
+    private val _currentTheme = MutableStateFlow(prefs.getString("current_theme", "gold") ?: "gold")
+    val currentTheme: StateFlow<String> = _currentTheme.asStateFlow()
+
+    fun setCurrentTheme(theme: String) {
+        _currentTheme.value = theme
+        prefs.edit().putString("current_theme", theme).apply()
+    }
+
     // Import status tracking
     private val _isImporting = MutableStateFlow(false)
     val isImporting: StateFlow<Boolean> = _isImporting.asStateFlow()
 
-    // Init with some demo offline presets for a gorgeous presentation!
+    private val httpClient = OkHttpClient.Builder().build()
+
+    // Clear previous demo videos on startup to have 0 preset test videos
     init {
-        viewModelScope.launch {
-            videosFlow.collect { list ->
-                if (list.isEmpty()) {
-                    createDefaultDemoVideoPresets()
+        viewModelScope.launch(Dispatchers.IO) {
+            val allVideos = dao.getAllVideosDirect()
+            allVideos.forEach { v ->
+                // Clean any default demo links or preset files
+                if (v.localUri.contains("commondatastorage.googleapis.com") || 
+                    v.folderName in listOf("Naturais", "Animes", "Jogos", "Ficção", "Astra NovaCore Original")) {
+                    dao.deleteVideo(v)
                 }
+            }
+        }
+    }
+
+    // Register raw Github stream or HLS streams directly in Room
+    fun registerStreamVideo(title: String, url: String, folderName: String = "Streams") {
+        viewModelScope.launch(Dispatchers.IO) {
+            val video = SavedVideo(
+                title = title,
+                localUri = url,
+                folderName = folderName.trim().ifBlank { "Streams" },
+                durationMs = 0L,
+                sizeBytes = 0L
+            )
+            repository.insertVideo(video)
+        }
+    }
+
+    // Parse a GitHub URL format "user/repo" or full "https://github.com/user/repo"
+    private fun parseGithubUrl(url: String): Pair<String, String>? {
+        val cleanUrl = url.trim().removeSuffix("/")
+        return if (cleanUrl.contains("github.com/")) {
+            val parts = cleanUrl.split("github.com/")
+            if (parts.size > 1) {
+                val path = parts[1]
+                val subParts = path.split("/")
+                if (subParts.size >= 2) {
+                    Pair(subParts[0], subParts[1])
+                } else null
+            } else null
+        } else if (cleanUrl.contains("/")) {
+            val parts = cleanUrl.split("/")
+            if (parts.size == 2) {
+                Pair(parts[0], parts[1])
+            } else null
+        } else null
+    }
+
+    // Recursively scan repository directories for video formats
+    private fun scanDirectoryRecursively(owner: String, repo: String, path: String, list: MutableList<SavedVideo>) {
+        val url = if (path.isEmpty()) {
+            "https://api.github.com/repos/$owner/$repo/contents"
+        } else {
+            "https://api.github.com/repos/$owner/$repo/contents/$path"
+        }
+        
+        val request = Request.Builder()
+            .url(url)
+            .header("User-Agent", "Astra-NovaCore-Player")
+            .build()
+            
+        httpClient.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) {
+                throw Exception("Servidor respondeu com código ${response.code}")
+            }
+            val body = response.body?.string() ?: return
+            val array = org.json.JSONArray(body)
+            for (i in 0 until array.length()) {
+                val item = array.getJSONObject(i)
+                val type = item.optString("type")
+                val name = item.optString("name")
+                val itemPath = item.optString("path")
+                val downloadUrl = item.optString("download_url")
+                
+                if (type == "dir") {
+                    scanDirectoryRecursively(owner, repo, itemPath, list)
+                } else if (type == "file") {
+                    if (isVideoExtension(name)) {
+                        val folderName = if (path.isEmpty()) "Cloud:$repo" else "Cloud:$repo/${itemPath.substringBeforeLast("/")}"
+                        list.add(
+                            SavedVideo(
+                                title = name.substringBeforeLast("."),
+                                localUri = downloadUrl,
+                                folderName = folderName,
+                                durationMs = 0L,
+                                sizeBytes = item.optLong("size", 0L)
+                            )
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    private fun isVideoExtension(name: String): Boolean {
+        val lower = name.lowercase()
+        return lower.endsWith(".mp4") || 
+               lower.endsWith(".m3u8") || 
+               lower.endsWith(".mkv") || 
+               lower.endsWith(".mov") || 
+               lower.endsWith(".avi") || 
+               lower.endsWith(".3gp") || 
+               lower.endsWith(".webm")
+    }
+
+    // Sincronizar repositório público do Github
+    fun syncGithubRepo(repoUrl: String, onSuccess: (Int) -> Unit, onError: (String) -> Unit) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val parsed = parseGithubUrl(repoUrl)
+            if (parsed == null) {
+                withContext(Dispatchers.Main) {
+                    onError("Formato de URL inválido. Use 'usuario/projeto' ou o link completo do repo.")
+                }
+                return@launch
+            }
+            val (owner, repo) = parsed
+            _isImporting.value = true
+            
+            try {
+                val videosFound = mutableListOf<SavedVideo>()
+                scanDirectoryRecursively(owner, repo, "", videosFound)
+                
+                var insertedCount = 0
+                for (video in videosFound) {
+                    val exists = dao.getVideoByUri(video.localUri)
+                    if (exists == null) {
+                        dao.insertVideo(video)
+                        insertedCount++
+                    }
+                }
+                
+                withContext(Dispatchers.Main) {
+                    onSuccess(insertedCount)
+                }
+            } catch (e: Exception) {
+                Log.e("VideoViewModel", "Github sync failed: $e")
+                withContext(Dispatchers.Main) {
+                    onError(e.localizedMessage ?: "Erro de conexão")
+                }
+            } finally {
+                _isImporting.value = false
             }
         }
     }

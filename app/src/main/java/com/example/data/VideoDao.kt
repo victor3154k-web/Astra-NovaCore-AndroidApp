@@ -11,6 +11,12 @@ interface VideoDao {
     @Query("SELECT * FROM saved_videos WHERE id = :id")
     suspend fun getVideoById(id: Int): SavedVideo?
 
+    @Query("SELECT * FROM saved_videos WHERE localUri = :uri LIMIT 1")
+    suspend fun getVideoByUri(uri: String): SavedVideo?
+
+    @Query("SELECT * FROM saved_videos")
+    suspend fun getAllVideosDirect(): List<SavedVideo>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertVideo(video: SavedVideo): Long
 
