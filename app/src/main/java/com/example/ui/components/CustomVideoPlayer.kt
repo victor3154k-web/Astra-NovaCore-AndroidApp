@@ -106,6 +106,7 @@ fun CustomVideoPlayer(
     var duration by remember { mutableStateOf(video.durationMs) }
     var showControls by remember { mutableStateOf(true) }
     var showSettingsDrawer by remember { mutableStateOf(false) }
+    var playbackError by remember { mutableStateOf<String?>(null) }
 
     // Listen for events
     DisposableEffect(exoPlayer) {
@@ -117,6 +118,13 @@ fun CustomVideoPlayer(
             override fun onPlaybackStateChanged(playbackState: Int) {
                 if (playbackState == Player.STATE_READY) {
                     duration = exoPlayer.duration
+                }
+            }
+
+            override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+                playbackError = "Falha no decodificador físico ou formato de arquivo: ${error.localizedMessage ?: "formato incompatível"}. Tentando modo alternativo Software (SW)..."
+                if (decoderMode == "HW" || decoderMode == "HW+") {
+                    onChangeDecoder("SW")
                 }
             }
         }
@@ -666,6 +674,83 @@ fun CustomVideoPlayer(
                                         )
                                     }
                                 }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Beautiful self-healing dynamic fallback alert banner
+        playbackError?.let { errMsg ->
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.75f))
+                    .clickable { /* Block underlying clicks */ },
+                contentAlignment = Alignment.Center
+            ) {
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = DarkBackground),
+                    shape = RoundedCornerShape(16.dp),
+                    modifier = Modifier
+                        .widthIn(max = 320.dp)
+                        .padding(24.dp)
+                        .border(1.dp, Color(0xFFFF2D55).copy(alpha = 0.5f), RoundedCornerShape(16.dp))
+                ) {
+                    Column(
+                        modifier = Modifier.padding(18.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Warning,
+                            contentDescription = "Erro de Reprodução",
+                            tint = Color(0xFFFF2D55),
+                            modifier = Modifier.size(40.dp)
+                        )
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Text(
+                            text = "Erro Decodificador / Mídia",
+                            color = Color.White,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = errMsg,
+                            color = LightGray,
+                            fontSize = 11.sp,
+                            textAlign = TextAlign.Center,
+                            lineHeight = 16.sp
+                        )
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Button(
+                                onClick = {
+                                    playbackError = null
+                                    try {
+                                        exoPlayer.prepare()
+                                        exoPlayer.play()
+                                    } catch (e: Exception) {
+                                        e.printStackTrace()
+                                    }
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = GoldMetallic),
+                                modifier = Modifier.weight(1f),
+                                contentPadding = PaddingValues(vertical = 6.dp)
+                            ) {
+                                Text("Tentar (SW)", color = Color.Black, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            }
+                            Button(
+                                onClick = { playbackError = null },
+                                colors = ButtonDefaults.buttonColors(containerColor = DarkSurface),
+                                modifier = Modifier.weight(1f),
+                                contentPadding = PaddingValues(vertical = 6.dp)
+                            ) {
+                                Text("Ignorar", color = Color.White, fontSize = 11.sp)
                             }
                         }
                     }

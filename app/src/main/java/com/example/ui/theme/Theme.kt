@@ -10,6 +10,15 @@ import androidx.compose.animation.animateColor
 import androidx.compose.animation.core.animateFloat
 import com.example.ui.VideoViewModel
 
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.graphics.Paint
+import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
+import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
+
 private val CustomDarkColorScheme = darkColorScheme(
     primary = GoldMetallic,
     onPrimary = Black,
@@ -171,3 +180,32 @@ fun MyApplicationTheme(
         content = content
     )
 }
+
+fun Modifier.ledGlow(
+    color: androidx.compose.ui.graphics.Color,
+    borderRadius: Dp = 12.dp,
+    glowRadius: Dp = 10.dp,
+    enabled: Boolean = true
+): Modifier = if (!enabled) this else this.drawBehind {
+    drawIntoCanvas { canvas ->
+        val paint = Paint().asFrameworkPaint().apply {
+            this.color = android.graphics.Color.TRANSPARENT
+            this.setShadowLayer(
+                glowRadius.toPx(),
+                0f,
+                0f,
+                color.toArgb()
+            )
+        }
+        canvas.nativeCanvas.drawRoundRect(
+            0f,
+            0f,
+            size.width,
+            size.height,
+            borderRadius.toPx(),
+            borderRadius.toPx(),
+            paint
+        )
+    }
+}
+

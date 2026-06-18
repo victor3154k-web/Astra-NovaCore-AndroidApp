@@ -50,6 +50,8 @@ fun DashboardScreen(
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     val activeAccentColor = rememberDynamicAccentColor(viewModel)
+    val currentThemeState by viewModel.currentTheme.collectAsState()
+    val isLedMode = remember(currentThemeState) { currentThemeState.startsWith("led_") }
 
     // ViewModel State variables
     val videos by viewModel.filteredVideosFlow.collectAsState()
@@ -257,7 +259,13 @@ fun DashboardScreen(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(64.dp),
+                        .height(64.dp)
+                        .ledGlow(
+                            color = activeAccentColor,
+                            borderRadius = 0.dp,
+                            glowRadius = 12.dp,
+                            enabled = isLedMode
+                        ),
                     horizontalArrangement = Arrangement.SpaceAround,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
@@ -310,7 +318,14 @@ fun DashboardScreen(
                 icon = { Icon(Icons.Default.Add, contentDescription = "Carregar Vídeo Off-line") },
                 text = { Text("Carregar Vídeo", fontWeight = FontWeight.Bold, fontSize = 14.sp) },
                 shape = RoundedCornerShape(16.dp),
-                modifier = Modifier.padding(bottom = 12.dp)
+                modifier = Modifier
+                    .padding(bottom = 12.dp)
+                    .ledGlow(
+                        color = activeAccentColor,
+                        borderRadius = 16.dp,
+                        glowRadius = 14.dp,
+                        enabled = isLedMode
+                    )
             )
         },
         containerColor = Black
@@ -1115,6 +1130,12 @@ fun DashboardScreen(
                             shape = RoundedCornerShape(12.dp),
                             modifier = Modifier
                                 .fillMaxWidth()
+                                .ledGlow(
+                                    color = borderGlowColor,
+                                    borderRadius = 12.dp,
+                                    glowRadius = 10.dp,
+                                    enabled = isSelected && themeKey.startsWith("led_")
+                                )
                                 .clickable {
                                     viewModel.setCurrentTheme(themeKey)
                                 }
@@ -1207,6 +1228,10 @@ fun MemoryAdministratorCard(
     var cacheSizeKb by remember { mutableStateOf(0L) }
     var isOptimized by remember { mutableStateOf(false) }
 
+    // Internal storage remaining stats
+    var internalFreeGb by remember { mutableStateOf(0f) }
+    var internalTotalGb by remember { mutableStateOf(0f) }
+
     fun refreshStats() {
         try {
             val runtime = Runtime.getRuntime()
@@ -1217,6 +1242,11 @@ fun MemoryAdministratorCard(
             totalMb = totalMemory / (1024 * 1024)
             freeMb = totalMb - usedMb
             
+            // Analyze remaining internal memory of the device
+            val statFs = android.os.StatFs(context.filesDir.absolutePath)
+            internalFreeGb = statFs.availableBytes / (1024f * 1024f * 1024f)
+            internalTotalGb = statFs.totalBytes / (1024f * 1024f * 1024f)
+
             var sumBytes = 0L
             listOf(context.cacheDir, File(context.filesDir, "subtitles"), File(context.filesDir, "thumbnails")).forEach { dir ->
                 if (dir.exists()) {
@@ -1239,10 +1269,20 @@ fun MemoryAdministratorCard(
         }
     }
 
+    val currentThemeState by viewModel.currentTheme.collectAsState()
+    val isLedMode = currentThemeState.startsWith("led_")
+
     Card(
         colors = CardDefaults.cardColors(containerColor = DarkSurface),
         shape = RoundedCornerShape(12.dp),
-        modifier = modifier.border(0.5.dp, accentColor.copy(alpha = 0.25f), RoundedCornerShape(12.dp))
+        modifier = modifier
+            .ledGlow(
+                color = accentColor,
+                borderRadius = 12.dp,
+                glowRadius = 14.dp,
+                enabled = isLedMode
+            )
+            .border(0.5.dp, accentColor.copy(alpha = 0.25f), RoundedCornerShape(12.dp))
     ) {
         Column(modifier = Modifier.padding(14.dp)) {
             Row(
@@ -1285,6 +1325,41 @@ fun MemoryAdministratorCard(
             }
             
             Spacer(modifier = Modifier.height(10.dp))
+
+            val internalProgress = remember(internalFreeGb, internalTotalGb) {
+                if (internalTotalGb > 0f) ((internalTotalGb - internalFreeGb) / internalTotalGb).coerceIn(0f, 1f) else 0f
+            }
+            
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    text = "Armazenamento Interno Restante",
+                    color = LightGray,
+                    fontSize = 11.sp
+                )
+                Text(
+                    text = String.format("%.2f GB Livres de %.1f GB", internalFreeGb, internalTotalGb),
+                    color = Color.White,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+            
+            Spacer(modifier = Modifier.height(4.dp))
+            
+            LinearProgressIndicator(
+                progress = { internalProgress },
+                color = accentColor,
+                trackColor = BorderGray,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(6.dp)
+                    .clip(RoundedCornerShape(3.dp))
+            )
+
+            Spacer(modifier = Modifier.height(14.dp))
             
             val progress = remember(usedMb, totalMb) {
                 if (totalMb > 0) (usedMb.toFloat() / totalMb.toFloat()).coerceIn(0f, 1f) else 0f
@@ -1311,7 +1386,7 @@ fun MemoryAdministratorCard(
             
             LinearProgressIndicator(
                 progress = { progress },
-                color = accentColor,
+                color = accentColor.copy(alpha = 0.7f),
                 trackColor = BorderGray,
                 modifier = Modifier
                     .fillMaxWidth()
