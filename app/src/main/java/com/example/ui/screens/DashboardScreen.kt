@@ -313,13 +313,31 @@ fun DashboardScreen(
             // Dynamic Floating Action Button that glows based on LED Theme Mode
             ExtendedFloatingActionButton(
                 onClick = { showAddDialog = true },
-                containerColor = activeAccentColor,
-                contentColor = Black,
-                icon = { Icon(Icons.Default.Add, contentDescription = "Carregar Vídeo Off-line") },
-                text = { Text("Carregar Vídeo", fontWeight = FontWeight.Bold, fontSize = 14.sp) },
+                containerColor = if (isLedMode) DarkSurface else activeAccentColor,
+                contentColor = if (isLedMode) activeAccentColor else Black,
+                icon = { 
+                    Icon(
+                        Icons.Default.Add, 
+                        contentDescription = "Carregar Vídeo Off-line",
+                        tint = if (isLedMode) activeAccentColor else Black
+                    ) 
+                },
+                text = { 
+                    Text(
+                        "Carregar Vídeo", 
+                        fontWeight = FontWeight.Bold, 
+                        fontSize = 14.sp,
+                        color = if (isLedMode) activeAccentColor else Black
+                    ) 
+                },
                 shape = RoundedCornerShape(16.dp),
                 modifier = Modifier
                     .padding(bottom = 12.dp)
+                    .then(
+                        if (isLedMode) {
+                            Modifier.border(1.5.dp, activeAccentColor, RoundedCornerShape(16.dp))
+                        } else Modifier
+                    )
                     .ledGlow(
                         color = activeAccentColor,
                         borderRadius = 16.dp,
@@ -622,17 +640,39 @@ fun DashboardScreen(
                                     )
                                 },
                                 colors = ButtonDefaults.buttonColors(
-                                    containerColor = activeAccentColor,
-                                    contentColor = Black
+                                    containerColor = if (isLedMode) Color.Transparent else activeAccentColor,
+                                    contentColor = if (isLedMode) activeAccentColor else Black
                                 ),
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .height(48.dp),
+                                    .height(48.dp)
+                                    .then(
+                                        if (isLedMode) {
+                                            Modifier
+                                                .border(1.5.dp, activeAccentColor, RoundedCornerShape(10.dp))
+                                                .ledGlow(
+                                                    color = activeAccentColor,
+                                                    borderRadius = 10.dp,
+                                                    glowRadius = 10.dp,
+                                                    enabled = true
+                                                )
+                                        } else Modifier
+                                    ),
                                 shape = RoundedCornerShape(10.dp)
-                            ) {
-                                Icon(Icons.Default.Sync, contentDescription = null, tint = Black, modifier = Modifier.size(18.dp))
+                             ) {
+                                Icon(
+                                    imageVector = Icons.Default.Sync, 
+                                    contentDescription = null, 
+                                    tint = if (isLedMode) activeAccentColor else Black, 
+                                    modifier = Modifier.size(18.dp)
+                                )
                                 Spacer(modifier = Modifier.width(8.dp))
-                                Text("Sincronizar Repositório", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                                Text(
+                                    text = "Sincronizar Repositório", 
+                                    fontWeight = FontWeight.Bold, 
+                                    fontSize = 14.sp,
+                                    color = if (isLedMode) activeAccentColor else Black
+                                )
                             }
                             
                             if (statusMessage != null) {
@@ -816,15 +856,44 @@ fun DashboardScreen(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
+                            val isSelected = selectedVideoUri != null
                             Button(
                                 onClick = { videoPickerLauncher.launch("video/*") },
-                                colors = ButtonDefaults.buttonColors(containerColor = if (selectedVideoUri != null) activeAccentColor else DarkSurface),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = if (isLedMode) {
+                                        DarkSurface
+                                    } else {
+                                        if (isSelected) activeAccentColor else DarkSurface
+                                    },
+                                    contentColor = if (isLedMode) {
+                                        if (isSelected) activeAccentColor else Color.White
+                                    } else {
+                                        if (isSelected) Black else Color.White
+                                    }
+                                ),
                                 shape = RoundedCornerShape(8.dp),
-                                modifier = Modifier.weight(1f)
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .then(
+                                        if (isLedMode) {
+                                            Modifier.border(
+                                                width = if (isSelected) 1.5.dp else 1.dp,
+                                                color = if (isSelected) activeAccentColor else BorderGray,
+                                                shape = RoundedCornerShape(8.dp)
+                                            )
+                                        } else Modifier
+                                    )
                             ) {
-                                Icon(Icons.Default.UploadFile, contentDescription = "Pick")
+                                Icon(
+                                    imageVector = Icons.Default.UploadFile, 
+                                    contentDescription = "Pick",
+                                    tint = if (isLedMode && isSelected) activeAccentColor else if (!isLedMode && isSelected) Black else Color.White
+                                )
                                 Spacer(modifier = Modifier.width(6.dp))
-                                Text(if (selectedVideoUri != null) "Galeria Escolhida" else "Abrir Arquivo", color = if (selectedVideoUri != null) Black else Color.White)
+                                Text(
+                                    text = if (isSelected) "Galeria Escolhida" else "Abrir Arquivo", 
+                                    color = if (isLedMode && isSelected) activeAccentColor else if (!isLedMode && isSelected) Black else Color.White
+                                )
                             }
                         }
                         
@@ -869,16 +938,46 @@ fun DashboardScreen(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
+                            val isSelectedSrt1 = selectedSrtUri1 != null
                             Button(
                                 onClick = { srtPicker1Launcher.launch("*/*") },
-                                colors = ButtonDefaults.buttonColors(containerColor = if (selectedSrtUri1 != null) activeAccentColor else DarkSurface),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = if (isLedMode) {
+                                        DarkSurface
+                                    } else {
+                                        if (isSelectedSrt1) activeAccentColor else DarkSurface
+                                    },
+                                    contentColor = if (isLedMode) {
+                                        if (isSelectedSrt1) activeAccentColor else Color.White
+                                    } else {
+                                        if (isSelectedSrt1) Black else Color.White
+                                    }
+                                ),
                                 shape = RoundedCornerShape(8.dp),
-                                modifier = Modifier.weight(1.2f),
+                                modifier = Modifier
+                                    .weight(1.2f)
+                                    .then(
+                                        if (isLedMode) {
+                                            Modifier.border(
+                                                width = if (isSelectedSrt1) 1.5.dp else 1.dp,
+                                                color = if (isSelectedSrt1) activeAccentColor else BorderGray,
+                                                shape = RoundedCornerShape(8.dp)
+                                            )
+                                        } else Modifier
+                                    ),
                                 contentPadding = PaddingValues(horizontal = 8.dp)
                             ) {
-                                Icon(Icons.Default.Subtitles, contentDescription = "Let1")
+                                Icon(
+                                    imageVector = Icons.Default.Subtitles, 
+                                    contentDescription = "Let1",
+                                    tint = if (isLedMode && isSelectedSrt1) activeAccentColor else if (!isLedMode && isSelectedSrt1) Black else Color.White
+                                )
                                 Spacer(modifier = Modifier.width(4.dp))
-                                Text(if (selectedSrtUri1 != null) "Legenda 1 ✓" else "SRT 1", color = if (selectedSrtUri1 != null) Black else Color.White, fontSize = 12.sp)
+                                Text(
+                                    text = if (isSelectedSrt1) "Legenda 1 ✓" else "SRT 1", 
+                                    color = if (isLedMode && isSelectedSrt1) activeAccentColor else if (!isLedMode && isSelectedSrt1) Black else Color.White, 
+                                    fontSize = 12.sp
+                                )
                             }
 
                             OutlinedTextField(
@@ -903,16 +1002,46 @@ fun DashboardScreen(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
+                            val isSelectedSrt2 = selectedSrtUri2 != null
                             Button(
                                 onClick = { srtPicker2Launcher.launch("*/*") },
-                                colors = ButtonDefaults.buttonColors(containerColor = if (selectedSrtUri2 != null) activeAccentColor else DarkSurface),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = if (isLedMode) {
+                                        DarkSurface
+                                    } else {
+                                        if (isSelectedSrt2) activeAccentColor else DarkSurface
+                                    },
+                                    contentColor = if (isLedMode) {
+                                        if (isSelectedSrt2) activeAccentColor else Color.White
+                                    } else {
+                                        if (isSelectedSrt2) Black else Color.White
+                                    }
+                                ),
                                 shape = RoundedCornerShape(8.dp),
-                                modifier = Modifier.weight(1.2f),
+                                modifier = Modifier
+                                    .weight(1.2f)
+                                    .then(
+                                        if (isLedMode) {
+                                            Modifier.border(
+                                                width = if (isSelectedSrt2) 1.5.dp else 1.dp,
+                                                color = if (isSelectedSrt2) activeAccentColor else BorderGray,
+                                                shape = RoundedCornerShape(8.dp)
+                                            )
+                                        } else Modifier
+                                    ),
                                 contentPadding = PaddingValues(horizontal = 8.dp)
                             ) {
-                                Icon(Icons.Default.Subtitles, contentDescription = "Let2")
+                                Icon(
+                                    imageVector = Icons.Default.Subtitles, 
+                                    contentDescription = "Let2",
+                                    tint = if (isLedMode && isSelectedSrt2) activeAccentColor else if (!isLedMode && isSelectedSrt2) Black else Color.White
+                                )
                                 Spacer(modifier = Modifier.width(4.dp))
-                                Text(if (selectedSrtUri2 != null) "Legenda 2 ✓" else "SRT 2", color = if (selectedSrtUri2 != null) Black else Color.White, fontSize = 12.sp)
+                                Text(
+                                    text = if (isSelectedSrt2) "Legenda 2 ✓" else "SRT 2", 
+                                    color = if (isLedMode && isSelectedSrt2) activeAccentColor else if (!isLedMode && isSelectedSrt2) Black else Color.White, 
+                                    fontSize = 12.sp
+                                )
                             }
 
                             OutlinedTextField(
@@ -957,9 +1086,29 @@ fun DashboardScreen(
                             android.widget.Toast.makeText(context, "Selecione um vídeo e atribua um nome.", android.widget.Toast.LENGTH_SHORT).show()
                         }
                     },
-                    colors = ButtonDefaults.buttonColors(containerColor = activeAccentColor)
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (isLedMode) Color.Transparent else activeAccentColor,
+                        contentColor = if (isLedMode) activeAccentColor else Black
+                    ),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.then(
+                        if (isLedMode) {
+                            Modifier
+                                .border(1.5.dp, activeAccentColor, RoundedCornerShape(12.dp))
+                                .ledGlow(
+                                    color = activeAccentColor,
+                                    borderRadius = 12.dp,
+                                    glowRadius = 10.dp,
+                                    enabled = true
+                                )
+                        } else Modifier
+                    )
                 ) {
-                    Text("Salvar Off-line", color = Black, fontWeight = FontWeight.Bold)
+                    Text(
+                        text = "Salvar Off-line", 
+                        color = if (isLedMode) activeAccentColor else Black, 
+                        fontWeight = FontWeight.Bold
+                    )
                 }
             },
             dismissButton = {
@@ -1056,9 +1205,29 @@ fun DashboardScreen(
                             android.widget.Toast.makeText(context, "Preencha o título e a URL da stream", android.widget.Toast.LENGTH_SHORT).show()
                         }
                     },
-                    colors = ButtonDefaults.buttonColors(containerColor = activeAccentColor)
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (isLedMode) Color.Transparent else activeAccentColor,
+                        contentColor = if (isLedMode) activeAccentColor else Black
+                    ),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.then(
+                        if (isLedMode) {
+                            Modifier
+                                .border(1.5.dp, activeAccentColor, RoundedCornerShape(12.dp))
+                                .ledGlow(
+                                    color = activeAccentColor,
+                                    borderRadius = 12.dp,
+                                    glowRadius = 10.dp,
+                                    enabled = true
+                                )
+                        } else Modifier
+                    )
                 ) {
-                    Text("Salvar Stream", color = Black, fontWeight = FontWeight.Bold)
+                    Text(
+                        text = "Salvar Stream", 
+                        color = if (isLedMode) activeAccentColor else Black, 
+                        fontWeight = FontWeight.Bold
+                    )
                 }
             },
             dismissButton = {
@@ -1202,9 +1371,29 @@ fun DashboardScreen(
             confirmButton = {
                 Button(
                     onClick = { showThemeDialog = false },
-                    colors = ButtonDefaults.buttonColors(containerColor = activeAccentColor)
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (isLedMode) Color.Transparent else activeAccentColor,
+                        contentColor = if (isLedMode) activeAccentColor else Black
+                    ),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.then(
+                        if (isLedMode) {
+                            Modifier
+                                .border(1.5.dp, activeAccentColor, RoundedCornerShape(12.dp))
+                                .ledGlow(
+                                    color = activeAccentColor,
+                                    borderRadius = 12.dp,
+                                    glowRadius = 10.dp,
+                                    enabled = true
+                                )
+                        } else Modifier
+                    )
                 ) {
-                    Text("Concluído", color = Black, fontWeight = FontWeight.Bold)
+                    Text(
+                        text = "Concluído", 
+                        color = if (isLedMode) activeAccentColor else Black, 
+                        fontWeight = FontWeight.Bold
+                    )
                 }
             },
             containerColor = DarkBackground,
@@ -1415,7 +1604,7 @@ fun MemoryAdministratorCard(
                     )
                 }
                 
-                Button(
+                 Button(
                     onClick = {
                         try {
                             context.cacheDir.deleteRecursively()
@@ -1427,23 +1616,29 @@ fun MemoryAdministratorCard(
                         }
                     },
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = accentColor,
-                        contentColor = Black
+                        containerColor = if (isLedMode) Color.Transparent else accentColor,
+                        contentColor = if (isLedMode) accentColor else Black
                     ),
                     contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
                     shape = RoundedCornerShape(6.dp),
-                    modifier = Modifier.height(28.dp)
+                    modifier = Modifier
+                        .height(28.dp)
+                        .then(
+                            if (isLedMode) {
+                                Modifier.border(1.2.dp, accentColor, RoundedCornerShape(6.dp))
+                            } else Modifier
+                        )
                 ) {
                     Icon(
                         imageVector = Icons.Default.Autorenew,
                         contentDescription = "Limpar",
-                        tint = Black,
+                        tint = if (isLedMode) accentColor else Black,
                         modifier = Modifier.size(12.dp)
                     )
                     Spacer(modifier = Modifier.width(4.dp))
                     Text(
                         text = "Otimizar",
-                        color = Black,
+                        color = if (isLedMode) accentColor else Black,
                         fontSize = 10.sp,
                         fontWeight = FontWeight.Bold
                     )
