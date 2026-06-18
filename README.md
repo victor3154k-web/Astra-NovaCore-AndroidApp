@@ -6,7 +6,7 @@
 
 - *Uma Breve Demonstração do app*
 <div  align="left">
-<img src="https://raw.githubusercontent.com/victor3154k-web/pages-repo/refs/heads/main/Pages_icon.png" />
+<img with="50px" height="100px" src="https://raw.githubusercontent.com/victor3154k-web/pages-repo/refs/heads/main/ANC%20Play.jpg" />
 </div>
 
 
