@@ -440,105 +440,186 @@ fun DashboardScreen(
                     }
                     1 -> {
                         // PASTAS TAB (Folders grouping list)
-                        if (groupedVideos.isEmpty()) {
-                            Column(
+                        var showCreateFolderDialog by remember { mutableStateOf(false) }
+                        var newFolderNameInput by remember { mutableStateOf("") }
+
+                        Column(modifier = Modifier.fillMaxSize()) {
+                            // Top Row with "Pastas" title and "+ Criar Pasta" button
+                            Row(
                                 modifier = Modifier
-                                    .fillMaxSize()
-                                    .padding(32.dp),
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.Center
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Icon(
-                                    imageVector = Icons.Default.FolderOpen,
-                                    contentDescription = "Sem Pastas",
-                                    tint = activeAccentColor.copy(alpha = 0.4f),
-                                    modifier = Modifier.size(76.dp)
-                                )
-                                Spacer(modifier = Modifier.height(16.dp))
                                 Text(
-                                    text = "Nenhuma Pasta Criada",
+                                    text = "Minhas Categorias",
                                     color = Color.White,
-                                    fontSize = 19.sp,
+                                    fontSize = 18.sp,
                                     fontWeight = FontWeight.Bold
                                 )
-                                Spacer(modifier = Modifier.height(8.dp))
-                                Text(
-                                    text = "As pastas serão listadas aqui de acordo com a categoria que você definir ao carregar seus vídeos.",
-                                    color = MediumGray,
-                                    fontSize = 13.sp,
-                                    textAlign = TextAlign.Center
-                                )
+                                Button(
+                                    onClick = { showCreateFolderDialog = true },
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = if (isLedMode) Color.Transparent else activeAccentColor,
+                                        contentColor = if (isLedMode) activeAccentColor else Black
+                                    ),
+                                    modifier = Modifier
+                                        .height(36.dp)
+                                        .then(
+                                            if (isLedMode) {
+                                                Modifier.border(1.dp, activeAccentColor, RoundedCornerShape(18.dp))
+                                            } else Modifier
+                                        ),
+                                    shape = RoundedCornerShape(18.dp),
+                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Add,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(16.dp),
+                                        tint = if (isLedMode) activeAccentColor else Black
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("Criar Pasta", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                }
                             }
-                        } else {
-                            LazyColumn(
-                                contentPadding = PaddingValues(16.dp),
-                                verticalArrangement = Arrangement.spacedBy(12.dp),
-                                modifier = Modifier.fillMaxSize()
-                            ) {
-                                groupedVideos.forEach { (folderName, folderVideos) ->
-                                    item {
-                                        Card(
-                                            colors = CardDefaults.cardColors(containerColor = DarkSurface),
-                                            shape = RoundedCornerShape(12.dp),
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .border(0.5.dp, activeAccentColor.copy(alpha = 0.15f), RoundedCornerShape(12.dp))
-                                        ) {
-                                            var expanded by remember { mutableStateOf(false) }
-                                            Column {
-                                                Row(
-                                                    modifier = Modifier
-                                                        .fillMaxWidth()
-                                                        .clickable { expanded = !expanded }
-                                                        .padding(horizontal = 16.dp, vertical = 14.dp),
-                                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                                    verticalAlignment = Alignment.CenterVertically
-                                                ) {
+
+                            if (groupedVideos.isEmpty()) {
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .weight(1f)
+                                        .padding(32.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.FolderOpen,
+                                        contentDescription = "Sem Pastas",
+                                        tint = activeAccentColor.copy(alpha = 0.4f),
+                                        modifier = Modifier.size(76.dp)
+                                    )
+                                    Spacer(modifier = Modifier.height(16.dp))
+                                    Text(
+                                        text = "Nenhuma Pasta Registrada",
+                                        color = Color.White,
+                                        fontSize = 19.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    Text(
+                                        text = "Toque em 'Criar Pasta' no topo para começar a categorizar suas mídias de forma organizada.",
+                                        color = MediumGray,
+                                        fontSize = 13.sp,
+                                        textAlign = TextAlign.Center
+                                    )
+                                }
+                            } else {
+                                LazyColumn(
+                                    contentPadding = PaddingValues(bottom = 76.dp, start = 16.dp, end = 16.dp),
+                                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                                    modifier = Modifier.fillMaxSize()
+                                ) {
+                                    groupedVideos.forEach { (folderName, folderVideos) ->
+                                        item {
+                                            Card(
+                                                colors = CardDefaults.cardColors(containerColor = DarkSurface),
+                                                shape = RoundedCornerShape(12.dp),
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .border(0.5.dp, activeAccentColor.copy(alpha = 0.15f), RoundedCornerShape(12.dp))
+                                            ) {
+                                                var expanded by remember { mutableStateOf(false) }
+                                                Column {
                                                     Row(
-                                                        verticalAlignment = Alignment.CenterVertically,
-                                                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                                                    ) {
-                                                        Icon(
-                                                            imageVector = Icons.Default.Folder,
-                                                            contentDescription = "Pasta",
-                                                            tint = activeAccentColor
-                                                        )
-                                                        Column {
-                                                            Text(
-                                                                text = folderName,
-                                                                color = Color.White,
-                                                                fontSize = 16.sp,
-                                                                fontWeight = FontWeight.Bold
-                                                            )
-                                                            Text(
-                                                                text = "${folderVideos.size} ${if (folderVideos.size == 1) "vídeo" else "vídeos"}",
-                                                                color = MediumGray,
-                                                                fontSize = 12.sp
-                                                            )
-                                                        }
-                                                    }
-                                                    Icon(
-                                                        imageVector = if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                                                        contentDescription = "Expandir",
-                                                        tint = Color.White
-                                                    )
-                                                }
-                                                
-                                                if (expanded) {
-                                                    Column(
                                                         modifier = Modifier
-                                                            .padding(horizontal = 12.dp)
-                                                            .padding(bottom = 12.dp)
+                                                            .fillMaxWidth()
+                                                            .clickable { expanded = !expanded }
+                                                            .padding(horizontal = 16.dp, vertical = 14.dp),
+                                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                                        verticalAlignment = Alignment.CenterVertically
                                                     ) {
-                                                        Divider(color = BorderGray, modifier = Modifier.padding(bottom = 6.dp))
-                                                        folderVideos.forEach { video ->
-                                                            VideoListItem(
-                                                                video = video,
-                                                                onVideoClick = { onPlayVideo(video) },
-                                                                onDeleteClick = { viewModel.deleteVideo(video) },
-                                                                isGridView = false,
-                                                                tintColor = activeAccentColor
+                                                        Row(
+                                                            verticalAlignment = Alignment.CenterVertically,
+                                                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                                            modifier = Modifier.weight(1f)
+                                                        ) {
+                                                            Icon(
+                                                                imageVector = Icons.Default.Folder,
+                                                                contentDescription = "Pasta",
+                                                                tint = activeAccentColor
                                                             )
+                                                            Column(modifier = Modifier.weight(1f, fill = false)) {
+                                                                Row(
+                                                                    verticalAlignment = Alignment.CenterVertically,
+                                                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                                                ) {
+                                                                    Text(
+                                                                        text = folderName,
+                                                                        color = Color.White,
+                                                                        fontSize = 16.sp,
+                                                                        fontWeight = FontWeight.Bold,
+                                                                        maxLines = 1
+                                                                    )
+                                                                    
+                                                                    val customFoldersList by viewModel.customFolders.collectAsState()
+                                                                    if (folderVideos.isEmpty() && customFoldersList.contains(folderName)) {
+                                                                        IconButton(
+                                                                            onClick = { viewModel.deleteFolder(folderName) },
+                                                                            modifier = Modifier.size(24.dp)
+                                                                        ) {
+                                                                            Icon(
+                                                                                imageVector = Icons.Default.Delete,
+                                                                                contentDescription = "Excluir pasta",
+                                                                                tint = Color.Red.copy(alpha = 0.7f),
+                                                                                modifier = Modifier.size(16.dp)
+                                                                            )
+                                                                        }
+                                                                    }
+                                                                }
+                                                                Text(
+                                                                    text = "${folderVideos.size} ${if (folderVideos.size == 1) "vídeo" else "vídeos"}",
+                                                                    color = MediumGray,
+                                                                    fontSize = 12.sp
+                                                                )
+                                                            }
+                                                        }
+                                                        Icon(
+                                                            imageVector = if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                                                            contentDescription = "Expandir",
+                                                            tint = Color.White
+                                                        )
+                                                    }
+                                                    
+                                                    if (expanded) {
+                                                        Column(
+                                                            modifier = Modifier
+                                                                .padding(horizontal = 12.dp)
+                                                                .padding(bottom = 12.dp)
+                                                        ) {
+                                                            Divider(color = BorderGray, modifier = Modifier.padding(bottom = 6.dp))
+                                                            if (folderVideos.isEmpty()) {
+                                                                Text(
+                                                                    text = "Nenhum vídeo nesta pasta. Escolha esta pasta ao carregar novos vídeos.",
+                                                                    color = MediumGray,
+                                                                    fontSize = 12.sp,
+                                                                    modifier = Modifier
+                                                                        .fillMaxWidth()
+                                                                        .padding(horizontal = 8.dp, vertical = 12.dp),
+                                                                    textAlign = TextAlign.Center
+                                                                )
+                                                            } else {
+                                                                folderVideos.forEach { video ->
+                                                                    VideoListItem(
+                                                                        video = video,
+                                                                        onVideoClick = { onPlayVideo(video) },
+                                                                        onDeleteClick = { viewModel.deleteVideo(video) },
+                                                                        isGridView = false,
+                                                                        tintColor = activeAccentColor
+                                                                    )
+                                                                }
+                                                            }
                                                         }
                                                     }
                                                 }
@@ -547,6 +628,67 @@ fun DashboardScreen(
                                     }
                                 }
                             }
+                        }
+
+                        // Dialog for Creating Custom Folder
+                        if (showCreateFolderDialog) {
+                            AlertDialog(
+                                onDismissRequest = { showCreateFolderDialog = false },
+                                title = {
+                                    Text("Criar Nova Pasta", color = activeAccentColor, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                                },
+                                text = {
+                                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        Text(
+                                            "Crie uma categoria personalizada para classificar e organizar seus vídeos.",
+                                            color = LightGray,
+                                            fontSize = 12.sp
+                                        )
+                                        OutlinedTextField(
+                                            value = newFolderNameInput,
+                                            onValueChange = { newFolderNameInput = it },
+                                            placeholder = { Text("Nome da Pasta", color = Color.Gray) },
+                                            colors = OutlinedTextFieldDefaults.colors(
+                                                focusedTextColor = Color.White,
+                                                unfocusedTextColor = Color.White,
+                                                focusedBorderColor = activeAccentColor,
+                                                unfocusedBorderColor = BorderGray
+                                            ),
+                                            modifier = Modifier.fillMaxWidth(),
+                                            singleLine = true
+                                        )
+                                    }
+                                },
+                                confirmButton = {
+                                    Button(
+                                        onClick = {
+                                            if (newFolderNameInput.isNotBlank()) {
+                                                viewModel.createFolder(newFolderNameInput)
+                                                newFolderNameInput = ""
+                                                showCreateFolderDialog = false
+                                            }
+                                        },
+                                        colors = ButtonDefaults.buttonColors(
+                                            containerColor = if (isLedMode) Color.Transparent else activeAccentColor,
+                                            contentColor = if (isLedMode) activeAccentColor else Black
+                                        ),
+                                        modifier = Modifier.then(
+                                            if (isLedMode) {
+                                                Modifier.border(1.dp, activeAccentColor, RoundedCornerShape(12.dp))
+                                            } else Modifier
+                                        )
+                                    ) {
+                                        Text("Criar", fontWeight = FontWeight.Bold)
+                                    }
+                                },
+                                dismissButton = {
+                                    TextButton(onClick = { showCreateFolderDialog = false }) {
+                                        Text("Cancelar", color = Color.White)
+                                    }
+                                },
+                                containerColor = DarkBackground,
+                                shape = RoundedCornerShape(20.dp)
+                            )
                         }
                     }
                     2 -> {
@@ -833,19 +975,63 @@ fun DashboardScreen(
                     }
 
                     item {
-                        OutlinedTextField(
-                            value = inputFolder,
-                            onValueChange = { inputFolder = it },
-                            label = { Text("Pasta / Categoria", color = Color.Gray, fontSize = 12.sp) },
-                            colors = OutlinedTextFieldDefaults.colors(
-                                focusedTextColor = Color.White,
-                                unfocusedTextColor = Color.White,
-                                focusedBorderColor = activeAccentColor,
-                                unfocusedBorderColor = BorderGray
-                            ),
-                            modifier = Modifier.fillMaxWidth(),
-                            singleLine = true
-                        )
+                        var dropdownExpanded by remember { mutableStateOf(false) }
+                        val customFoldersList by viewModel.customFolders.collectAsState()
+                        
+                        Box(modifier = Modifier.fillMaxWidth()) {
+                            OutlinedTextField(
+                                value = inputFolder,
+                                onValueChange = { },
+                                readOnly = true,
+                                label = { Text("Selecione a Pasta", color = Color.Gray, fontSize = 12.sp) },
+                                trailingIcon = {
+                                    IconButton(onClick = { dropdownExpanded = true }) {
+                                        Icon(
+                                            imageVector = Icons.Default.ArrowDropDown,
+                                            contentDescription = "Expandir Pastas",
+                                            tint = activeAccentColor
+                                        )
+                                    }
+                                },
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedTextColor = Color.White,
+                                    unfocusedTextColor = Color.White,
+                                    focusedBorderColor = activeAccentColor,
+                                    unfocusedBorderColor = BorderGray,
+                                    focusedContainerColor = Color.Transparent,
+                                    unfocusedContainerColor = Color.Transparent
+                                ),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { dropdownExpanded = true }
+                            )
+                            
+                            DropdownMenu(
+                                expanded = dropdownExpanded,
+                                onDismissRequest = { dropdownExpanded = false },
+                                modifier = Modifier
+                                    .fillMaxWidth(0.9f)
+                                    .background(DarkSurface)
+                                    .border(1.dp, BorderGray)
+                            ) {
+                                customFoldersList.forEach { folderName ->
+                                    DropdownMenuItem(
+                                        text = { 
+                                            Text(
+                                                text = folderName,
+                                                color = Color.White,
+                                                fontSize = 14.sp
+                                            ) 
+                                        },
+                                        onClick = {
+                                            inputFolder = folderName
+                                            dropdownExpanded = false
+                                        },
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
+                                }
+                            }
+                        }
                     }
 
                     item {
@@ -1173,19 +1359,63 @@ fun DashboardScreen(
                         singleLine = true
                     )
 
-                    OutlinedTextField(
-                        value = streamFolder,
-                        onValueChange = { streamFolder = it },
-                        label = { Text("Pasta / Categoria", color = Color.Gray, fontSize = 12.sp) },
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedTextColor = Color.White,
-                            unfocusedTextColor = Color.White,
-                            focusedBorderColor = activeAccentColor,
-                            unfocusedBorderColor = BorderGray
-                        ),
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true
-                    )
+                    var streamFolderDropdownExpanded by remember { mutableStateOf(false) }
+                    val customFoldersList by viewModel.customFolders.collectAsState()
+                    
+                    Box(modifier = Modifier.fillMaxWidth()) {
+                        OutlinedTextField(
+                            value = streamFolder,
+                            onValueChange = { },
+                            readOnly = true,
+                            label = { Text("Selecione a Pasta", color = Color.Gray, fontSize = 12.sp) },
+                            trailingIcon = {
+                                IconButton(onClick = { streamFolderDropdownExpanded = true }) {
+                                    Icon(
+                                        imageVector = Icons.Default.ArrowDropDown,
+                                        contentDescription = "Expandir Pastas",
+                                        tint = activeAccentColor
+                                    )
+                                }
+                            },
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedTextColor = Color.White,
+                                unfocusedTextColor = Color.White,
+                                focusedBorderColor = activeAccentColor,
+                                unfocusedBorderColor = BorderGray,
+                                focusedContainerColor = Color.Transparent,
+                                unfocusedContainerColor = Color.Transparent
+                            ),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { streamFolderDropdownExpanded = true }
+                        )
+                        
+                        DropdownMenu(
+                            expanded = streamFolderDropdownExpanded,
+                            onDismissRequest = { streamFolderDropdownExpanded = false },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(DarkSurface)
+                                .border(1.dp, BorderGray)
+                        ) {
+                            customFoldersList.forEach { folderName ->
+                                DropdownMenuItem(
+                                    text = { 
+                                        Text(
+                                            text = folderName,
+                                            color = Color.White,
+                                            fontSize = 14.sp
+                                        ) 
+                                    },
+                                    onClick = {
+                                        streamFolder = folderName
+                                        streamFolderDropdownExpanded = false
+                                    },
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                            }
+                        }
+                    }
                 }
             },
             confirmButton = {

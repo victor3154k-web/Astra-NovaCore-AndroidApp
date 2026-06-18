@@ -195,17 +195,31 @@ class VideoRepository(
         }
     }
 
-    private fun getExtension(uri: Uri): String? {
-        return try {
-            val path = uri.path ?: return "mp4"
-            val index = path.lastIndexOf('.')
-            if (index != -1) {
-                path.substring(index + 1).lowercase()
-            } else {
-                "mp4"
+    private fun getExtension(uri: Uri): String {
+        try {
+            if (uri.scheme == "content") {
+                val mimeType = context.contentResolver.getType(uri)
+                if (mimeType != null) {
+                    val mimeTypeMap = android.webkit.MimeTypeMap.getSingleton()
+                    val ext = mimeTypeMap.getExtensionFromMimeType(mimeType)
+                    if (!ext.isNullOrBlank()) {
+                        return ext.lowercase()
+                    }
+                }
+            }
+            val lastSegment = uri.lastPathSegment
+            if (lastSegment != null) {
+                val dotIndex = lastSegment.lastIndexOf('.')
+                if (dotIndex != -1 && dotIndex < lastSegment.length - 1) {
+                    val ext = lastSegment.substring(dotIndex + 1).lowercase()
+                    if (ext.matches("[a-zA-Z0-9]+".toRegex())) {
+                        return ext
+                    }
+                }
             }
         } catch (e: Exception) {
-            "mp4"
+            Log.e("VideoRepository", "Error getting extension: $e", e)
         }
+        return "mp4"
     }
 }

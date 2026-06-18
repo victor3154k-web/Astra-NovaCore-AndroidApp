@@ -43,17 +43,50 @@ class VideoViewModel(application: Application) : AndroidViewModel(application) {
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    // Grouped by directory
-    val groupedVideosFlow: StateFlow<Map<String, List<SavedVideo>>> = filteredVideosFlow
-        .map { list -> list.groupBy { it.folderName } }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
+    // Grouped by directory including custom folders (populated or empty)
+    private val prefs = application.getSharedPreferences("anc_play_prefs", Context.MODE_PRIVATE)
+
+    // Custom manually created folders. Default options: "Meus Vídeos", "Geral", "Streams"
+    private val _customFolders = MutableStateFlow<Set<String>>(
+        prefs.getStringSet("custom_folders_list", null) ?: setOf("Meus Vídeos", "Geral", "Streams")
+    )
+    val customFolders: StateFlow<Set<String>> = _customFolders.asStateFlow()
+
+    fun createFolder(name: String) {
+        if (name.isNotBlank()) {
+            val updated = _customFolders.value + name.trim()
+            _customFolders.value = updated
+            prefs.edit().putStringSet("custom_folders_list", updated).apply()
+        }
+    }
+
+    fun deleteFolder(name: String) {
+        val updated = _customFolders.value - name
+        _customFolders.value = updated
+        prefs.edit().putStringSet("custom_folders_list", updated).apply()
+    }
+
+    val allGroupedFoldersFlow: StateFlow<Map<String, List<SavedVideo>>> = combine(
+        filteredVideosFlow,
+        _customFolders
+    ) { videos, customFold ->
+        val result = customFold.associateWith { emptyList<SavedVideo>() }.toMutableMap()
+        val grouped = videos.groupBy { it.folderName }
+        grouped.forEach { (folderName, list) ->
+            result[folderName] = list
+        }
+        result.toSortedMap()
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
+
+    // We keep the old name to prevent breaking other files or we can map it
+    val groupedVideosFlow: StateFlow<Map<String, List<SavedVideo>>> = allGroupedFoldersFlow
 
     // Video playback state
     private val _activePlayingVideo = MutableStateFlow<SavedVideo?>(null)
     val activePlayingVideo: StateFlow<SavedVideo?> = _activePlayingVideo.asStateFlow()
 
-    // Decoder configurations: HW, SW, HW+
-    private val _decoderMode = MutableStateFlow("HW+") // default premium
+    // Decoder configurations: HW, SW (HW+ removed)
+    private val _decoderMode = MutableStateFlow("HW") // default hardware
     val decoderMode: StateFlow<String> = _decoderMode.asStateFlow()
 
     // Playback Speed
@@ -82,7 +115,6 @@ class VideoViewModel(application: Application) : AndroidViewModel(application) {
     val srtFontFamilyName: StateFlow<String> = _srtFontFamilyName.asStateFlow()
 
     // Theme state: "gold", "led_warm", "led_cold"
-    private val prefs = application.getSharedPreferences("anc_play_prefs", Context.MODE_PRIVATE)
     private val _currentTheme = MutableStateFlow(prefs.getString("current_theme", "gold") ?: "gold")
     val currentTheme: StateFlow<String> = _currentTheme.asStateFlow()
 

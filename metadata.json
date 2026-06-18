@@ -1,6 +1,6 @@
 {
   "name": "ANC Play",
-  "description": "Astra NovaCore (ANC Play) - Sleek Black, White & Gold Offline Video Player with SRT subtitle controls and advanced SW/HW+ decoding.",
+  "description": "Astra NovaCore (ANC Play) - Sleek Black, White & Gold Offline Video Player with SRT subtitle controls and advanced SW/HW decoding.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }
