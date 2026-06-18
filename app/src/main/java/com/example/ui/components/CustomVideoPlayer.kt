@@ -33,6 +33,10 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
+import org.videolan.libvlc.LibVLC
+import org.videolan.libvlc.Media
+import org.videolan.libvlc.MediaPlayer
+import android.view.SurfaceView
 import com.example.data.SavedVideo
 import com.example.data.SubtitleEntry
 import com.example.ui.theme.*
@@ -63,6 +67,18 @@ fun CustomVideoPlayer(
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
 
+    // Initialize LibVLC for Software (SW) decoding
+    val libVlc = remember {
+        val options = ArrayList<String>()
+        options.add("--no-sub-autodetect-file")
+        options.add("--extraintf=android_audiotrack")
+        LibVLC(context, options)
+    }
+
+    val vlcMediaPlayer = remember(libVlc) {
+        MediaPlayer(libVlc)
+    }
+
     // Create a custom RenderersFactory according to selected decoder mode
     val renderersFactory = remember(decoderMode) {
         DefaultRenderersFactory(context).apply {
@@ -82,24 +98,6 @@ fun CustomVideoPlayer(
         }
     }
 
-    // Load media item
-    LaunchedEffect(exoPlayer, video) {
-        val uri = video.localUri
-        val mediaItem = if (uri.startsWith("/")) {
-            MediaItem.fromUri(android.net.Uri.fromFile(java.io.File(uri)))
-        } else {
-            MediaItem.fromUri(uri)
-        }
-        exoPlayer.setMediaItem(mediaItem)
-        exoPlayer.seekTo(video.playbackPositionMs)
-        exoPlayer.prepare()
-    }
-
-    // Apply speed settings
-    LaunchedEffect(exoPlayer, playbackSpeed) {
-        exoPlayer.setPlaybackSpeed(playbackSpeed)
-    }
-
     // Track state
     var isPlaying by remember { mutableStateOf(true) }
     var currentPosition by remember { mutableStateOf(video.playbackPositionMs) }
@@ -108,15 +106,70 @@ fun CustomVideoPlayer(
     var showSettingsDrawer by remember { mutableStateOf(false) }
     var playbackError by remember { mutableStateOf<String?>(null) }
 
-    // Listen for events
-    DisposableEffect(exoPlayer) {
+    // Load media item conditionally based on decoder mode
+    LaunchedEffect(video, decoderMode, exoPlayer, vlcMediaPlayer) {
+        if (decoderMode == "SW") {
+            // Stop and release ExoPlayer
+            exoPlayer.stop()
+            
+            // Configure LibVLC media
+            val file = java.io.File(video.localUri)
+            val media = if (file.exists()) {
+                Media(libVlc, file.absolutePath)
+            } else {
+                Media(libVlc, android.net.Uri.parse(video.localUri))
+            }
+            
+            vlcMediaPlayer.media = media
+            media.release()
+            
+            vlcMediaPlayer.play()
+            
+            // Wait slightly for player to initialize before setting position and options
+            delay(200)
+            if (video.playbackPositionMs > 0 && video.durationMs > 0) {
+                vlcMediaPlayer.position = (video.playbackPositionMs.toFloat() / video.durationMs.toFloat()).coerceIn(0f, 1f)
+            }
+            vlcMediaPlayer.rate = playbackSpeed
+            isPlaying = true
+        } else {
+            // Stop and release VLC MediaPlayer
+            vlcMediaPlayer.stop()
+            
+            val uri = video.localUri
+            val mediaItem = if (uri.startsWith("/")) {
+                MediaItem.fromUri(android.net.Uri.fromFile(java.io.File(uri)))
+            } else {
+                MediaItem.fromUri(uri)
+            }
+            exoPlayer.setMediaItem(mediaItem)
+            exoPlayer.seekTo(video.playbackPositionMs)
+            exoPlayer.prepare()
+            exoPlayer.playWhenReady = true
+            isPlaying = true
+        }
+    }
+
+    // Apply speed settings
+    LaunchedEffect(exoPlayer, vlcMediaPlayer, playbackSpeed, decoderMode) {
+        if (decoderMode == "SW") {
+            vlcMediaPlayer.rate = playbackSpeed
+        } else {
+            exoPlayer.setPlaybackSpeed(playbackSpeed)
+        }
+    }
+
+    // Listen for ExoPlayer events
+    DisposableEffect(exoPlayer, decoderMode) {
         val listener = object : Player.Listener {
             override fun onIsPlayingChanged(playing: Boolean) {
-                isPlaying = playing
+                if (decoderMode != "SW") {
+                    isPlaying = playing
+                }
             }
             
             override fun onPlaybackStateChanged(playbackState: Int) {
-                if (playbackState == Player.STATE_READY) {
+                if (decoderMode != "SW" && playbackState == Player.STATE_READY) {
                     duration = exoPlayer.duration
                 }
             }
@@ -131,15 +184,61 @@ fun CustomVideoPlayer(
         exoPlayer.addListener(listener)
         onDispose {
             exoPlayer.removeListener(listener)
+        }
+    }
+
+    // Listen for LibVLC events
+    DisposableEffect(vlcMediaPlayer, decoderMode) {
+        if (decoderMode == "SW") {
+            vlcMediaPlayer.setEventListener { event ->
+                when (event.type) {
+                    MediaPlayer.Event.Playing -> {
+                        isPlaying = true
+                    }
+                    MediaPlayer.Event.Paused -> {
+                        isPlaying = false
+                    }
+                    MediaPlayer.Event.Stopped -> {
+                        isPlaying = false
+                    }
+                    MediaPlayer.Event.EndReached -> {
+                        isPlaying = false
+                    }
+                    MediaPlayer.Event.TimeChanged -> {
+                        currentPosition = event.timeChanged
+                        onPlaybackPositionUpdate(video.id, event.timeChanged)
+                    }
+                    MediaPlayer.Event.LengthChanged -> {
+                        if (event.lengthChanged > 0) {
+                            duration = event.lengthChanged
+                        }
+                    }
+                }
+            }
+        }
+        onDispose {
+            vlcMediaPlayer.setEventListener(null)
+            vlcMediaPlayer.getVLCVout().detachViews()
+        }
+    }
+
+    // Lifetime cleanup of VLC engines
+    DisposableEffect(Unit) {
+        onDispose {
+            vlcMediaPlayer.stop()
+            vlcMediaPlayer.release()
+            libVlc.release()
             exoPlayer.release()
         }
     }
 
-    // Position updates collector
-    LaunchedEffect(isPlaying, exoPlayer) {
+    // Position updates collector for ExoPlayer
+    LaunchedEffect(isPlaying, exoPlayer, decoderMode) {
         while (isPlaying) {
-            currentPosition = exoPlayer.currentPosition
-            onPlaybackPositionUpdate(video.id, currentPosition)
+            if (decoderMode != "SW") {
+                currentPosition = exoPlayer.currentPosition
+                onPlaybackPositionUpdate(video.id, currentPosition)
+            }
             delay(100) // Update position every 100ms
         }
     }
@@ -181,19 +280,35 @@ fun CustomVideoPlayer(
             }
     ) {
         // Player View
-        AndroidView(
-            factory = { ctx ->
-                PlayerView(ctx).apply {
-                    player = exoPlayer
-                    useController = false // Use custom beautiful overlay controls
-                    layoutParams = FrameLayout.LayoutParams(
-                        ViewGroup.LayoutParams.MATCH_PARENT,
-                        ViewGroup.LayoutParams.MATCH_PARENT
-                    )
-                }
-            },
-            modifier = Modifier.fillMaxSize()
-        )
+        if (decoderMode == "SW") {
+            AndroidView(
+                factory = { ctx ->
+                    SurfaceView(ctx).apply {
+                        layoutParams = FrameLayout.LayoutParams(
+                            ViewGroup.LayoutParams.MATCH_PARENT,
+                            ViewGroup.LayoutParams.MATCH_PARENT
+                        )
+                        vlcMediaPlayer.getVLCVout().setVideoView(this)
+                        vlcMediaPlayer.getVLCVout().attachViews()
+                    }
+                },
+                modifier = Modifier.fillMaxSize()
+            )
+        } else {
+            AndroidView(
+                factory = { ctx ->
+                    PlayerView(ctx).apply {
+                        player = exoPlayer
+                        useController = false // Use custom beautiful overlay controls
+                        layoutParams = FrameLayout.LayoutParams(
+                            ViewGroup.LayoutParams.MATCH_PARENT,
+                            ViewGroup.LayoutParams.MATCH_PARENT
+                        )
+                    }
+                },
+                modifier = Modifier.fillMaxSize()
+            )
+        }
 
         // Simultaneous Subtitles Layers
         Column(
@@ -348,8 +463,13 @@ fun CustomVideoPlayer(
                     // Rewind 10s
                     IconButton(
                         onClick = {
-                            val newPos = (exoPlayer.currentPosition - 10000).coerceAtLeast(0)
-                            exoPlayer.seekTo(newPos)
+                            val currentPos = if (decoderMode == "SW") vlcMediaPlayer.time else exoPlayer.currentPosition
+                            val newPos = (currentPos - 10000).coerceAtLeast(0)
+                            if (decoderMode == "SW") {
+                                vlcMediaPlayer.time = newPos
+                            } else {
+                                exoPlayer.seekTo(newPos)
+                            }
                             currentPosition = newPos
                         },
                         modifier = Modifier
@@ -368,9 +488,19 @@ fun CustomVideoPlayer(
                     IconButton(
                         onClick = {
                             if (isPlaying) {
-                                exoPlayer.pause()
+                                if (decoderMode == "SW") {
+                                    vlcMediaPlayer.pause()
+                                } else {
+                                    exoPlayer.pause()
+                                }
+                                isPlaying = false
                             } else {
-                                exoPlayer.play()
+                                if (decoderMode == "SW") {
+                                    vlcMediaPlayer.play()
+                                } else {
+                                    exoPlayer.play()
+                                }
+                                isPlaying = true
                             }
                         },
                         modifier = Modifier
@@ -388,8 +518,13 @@ fun CustomVideoPlayer(
                     // Forward 10s
                     IconButton(
                         onClick = {
-                            val newPos = (exoPlayer.currentPosition + 10000).coerceAtMost(duration)
-                            exoPlayer.seekTo(newPos)
+                            val currentPos = if (decoderMode == "SW") vlcMediaPlayer.time else exoPlayer.currentPosition
+                            val newPos = (currentPos + 10000).coerceAtMost(duration)
+                            if (decoderMode == "SW") {
+                                vlcMediaPlayer.time = newPos
+                            } else {
+                                exoPlayer.seekTo(newPos)
+                            }
                             currentPosition = newPos
                         },
                         modifier = Modifier
@@ -465,8 +600,13 @@ fun CustomVideoPlayer(
                     Slider(
                         value = currentPosition.toFloat(),
                         onValueChange = {
-                            exoPlayer.seekTo(it.toLong())
-                            currentPosition = it.toLong()
+                            val targetMs = it.toLong()
+                            if (decoderMode == "SW") {
+                                vlcMediaPlayer.time = targetMs
+                            } else {
+                                exoPlayer.seekTo(targetMs)
+                            }
+                            currentPosition = targetMs
                         },
                         valueRange = 0f..(duration.toFloat().coerceAtLeast(1f)),
                         colors = SliderDefaults.colors(
@@ -732,8 +872,12 @@ fun CustomVideoPlayer(
                                 onClick = {
                                     playbackError = null
                                     try {
-                                        exoPlayer.prepare()
-                                        exoPlayer.play()
+                                        if (decoderMode == "SW") {
+                                            vlcMediaPlayer.play()
+                                        } else {
+                                            exoPlayer.prepare()
+                                            exoPlayer.play()
+                                        }
                                     } catch (e: Exception) {
                                         e.printStackTrace()
                                     }
