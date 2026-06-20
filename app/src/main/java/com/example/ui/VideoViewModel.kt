@@ -93,6 +93,59 @@ class VideoViewModel(application: Application) : AndroidViewModel(application) {
     private val _playbackSpeed = MutableStateFlow(1.0f)
     val playbackSpeed: StateFlow<Float> = _playbackSpeed.asStateFlow()
 
+    // Video Auto Repeat (Default: false)
+    private val _videoAutoRepeat = MutableStateFlow(prefs.getBoolean("video_auto_repeat", false))
+    val videoAutoRepeat: StateFlow<Boolean> = _videoAutoRepeat.asStateFlow()
+
+    fun setVideoAutoRepeat(enabled: Boolean) {
+        _videoAutoRepeat.value = enabled
+        prefs.edit().putBoolean("video_auto_repeat", enabled).apply()
+    }
+
+    // Title Logo selection state (classic, cyber_cat, cute_alien, fun_gif)
+    private val _titleLogoType = MutableStateFlow(prefs.getString("title_logo_type", "classic") ?: "classic")
+    val titleLogoType: StateFlow<String> = _titleLogoType.asStateFlow()
+
+    fun setTitleLogoType(type: String) {
+        _titleLogoType.value = type
+        prefs.edit().putString("title_logo_type", type).apply()
+    }
+
+    // Custom Logo File Path (imported local image/gif)
+    private val _customLogoPath = MutableStateFlow(prefs.getString("custom_logo_path", null))
+    val customLogoPath: StateFlow<String?> = _customLogoPath.asStateFlow()
+
+    fun setCustomLogoPath(path: String?) {
+        _customLogoPath.value = path
+        if (path != null) {
+            prefs.edit().putString("custom_logo_path", path).apply()
+        } else {
+            prefs.edit().remove("custom_logo_path").apply()
+        }
+    }
+
+    // CPU Cores selection (Performance Setting)
+    private val _cpuCores = MutableStateFlow(
+        prefs.getInt("cpu_cores_allocated", Runtime.getRuntime().availableProcessors())
+            .coerceIn(1, maxOf(1, Runtime.getRuntime().availableProcessors()))
+    )
+    val cpuCores: StateFlow<Int> = _cpuCores.asStateFlow()
+
+    fun setCpuCores(cores: Int) {
+        val maxCores = maxOf(1, Runtime.getRuntime().availableProcessors())
+        val coerced = cores.coerceIn(1, maxCores)
+        _cpuCores.value = coerced
+        prefs.edit().putInt("cpu_cores_allocated", coerced).apply()
+    }
+
+    // Settings Screen visibility state
+    private val _showSettingsScreen = MutableStateFlow(false)
+    val showSettingsScreen: StateFlow<Boolean> = _showSettingsScreen.asStateFlow()
+
+    fun setShowSettingsScreen(show: Boolean) {
+        _showSettingsScreen.value = show
+    }
+
     // Interactive Dual Subtitles
     private val _subtitles1 = MutableStateFlow<List<SubtitleEntry>>(emptyList())
     val subtitles1: StateFlow<List<SubtitleEntry>> = _subtitles1.asStateFlow()

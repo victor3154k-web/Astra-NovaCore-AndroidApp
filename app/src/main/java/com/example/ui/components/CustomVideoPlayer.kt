@@ -1,13 +1,22 @@
 package com.example.ui.components
 
+import android.app.Activity
+import android.content.Context
+import android.content.ContextWrapper
+import android.content.pm.ActivityInfo
 import android.view.ViewGroup
 import android.widget.FrameLayout
 import androidx.annotation.OptIn
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.*
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -56,6 +65,7 @@ fun CustomVideoPlayer(
     srtOffset2Ms: Long,
     srtTextSizeSp: Float,
     srtFontFamilyName: String,
+    autoRepeatEnabled: Boolean,
     onPlaybackPositionUpdate: (videoId: Int, positionMs: Long) -> Unit,
     onClosePlayer: () -> Unit,
     onChangeDecoder: (String) -> Unit,
@@ -63,7 +73,8 @@ fun CustomVideoPlayer(
     onChangeSrtOffset1: (Long) -> Unit,
     onChangeSrtOffset2: (Long) -> Unit,
     onChangeSrtTextSize: (Float) -> Unit,
-    onChangeSrtFontFamilyName: (String) -> Unit
+    onChangeSrtFontFamilyName: (String) -> Unit,
+    onChangeAutoRepeat: (Boolean) -> Unit
 ) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
@@ -109,6 +120,7 @@ fun CustomVideoPlayer(
     var duration by remember { mutableStateOf(video.durationMs) }
     var showControls by remember { mutableStateOf(true) }
     var showSettingsDrawer by remember { mutableStateOf(false) }
+    var showThreeDotsMenu by remember { mutableStateOf(false) }
     var playbackError by remember { mutableStateOf<PlayerNotification?>(null) }
 
     // Auto-dismiss the transient self-healing notification after 6 seconds
@@ -116,6 +128,15 @@ fun CustomVideoPlayer(
         if (playbackError != null) {
             delay(6000)
             playbackError = null
+        }
+    }
+
+    // Auto-restore Portrait/Unspecified orientation when leaving player
+    DisposableEffect(Unit) {
+        onDispose {
+            try {
+                context.findActivity()?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+            } catch (e: Exception) {}
         }
     }
 
@@ -260,6 +281,11 @@ fun CustomVideoPlayer(
         }
     }
 
+    // Control repeat mode dynamically for ExoPlayer
+    LaunchedEffect(exoPlayer, autoRepeatEnabled) {
+        exoPlayer.repeatMode = if (autoRepeatEnabled) Player.REPEAT_MODE_ONE else Player.REPEAT_MODE_OFF
+    }
+
     // Apply speed settings
     LaunchedEffect(exoPlayer, vlcMediaPlayer, playbackSpeed, decoderMode) {
         try {
@@ -273,6 +299,26 @@ fun CustomVideoPlayer(
         }
     }
 
+    val closeAndSaveProgress: () -> Unit = {
+        isPlaying = false
+        try {
+            exoPlayer.pause()
+            vlcMediaPlayer.pause()
+        } catch (e: Exception) {}
+        val isCompleted = duration > 0 && currentPosition >= (duration - 4000)
+        val finalPosition = if (isCompleted) 0L else currentPosition
+        onPlaybackPositionUpdate(video.id, finalPosition)
+        onClosePlayer()
+    }
+
+    BackHandler {
+        closeAndSaveProgress()
+    }
+
+    val currentCloseAndSaveProgress by rememberUpdatedState(closeAndSaveProgress)
+    val currentAutoRepeatEnabled by rememberUpdatedState(autoRepeatEnabled)
+    val currentOnClosePlayer by rememberUpdatedState(onClosePlayer)
+
     // Listen for ExoPlayer events
     DisposableEffect(exoPlayer, decoderMode) {
         val listener = object : Player.Listener {
@@ -283,8 +329,14 @@ fun CustomVideoPlayer(
             }
             
             override fun onPlaybackStateChanged(playbackState: Int) {
-                if (decoderMode != "SW" && playbackState == Player.STATE_READY) {
-                    duration = exoPlayer.duration
+                if (decoderMode != "SW") {
+                    if (playbackState == Player.STATE_READY) {
+                        duration = exoPlayer.duration
+                    } else if (playbackState == Player.STATE_ENDED) {
+                        if (!currentAutoRepeatEnabled) {
+                            currentCloseAndSaveProgress()
+                        }
+                    }
                 }
             }
 
@@ -324,6 +376,20 @@ fun CustomVideoPlayer(
                         }
                         MediaPlayer.Event.EndReached -> {
                             isPlaying = false
+                            if (currentAutoRepeatEnabled) {
+                                coroutineScope.launch {
+                                    try {
+                                        vlcMediaPlayer.stop()
+                                        delay(100)
+                                        vlcMediaPlayer.play()
+                                        isPlaying = true
+                                    } catch (e: Exception) {}
+                                }
+                            } else {
+                                coroutineScope.launch {
+                                    currentCloseAndSaveProgress()
+                                }
+                            }
                         }
                         MediaPlayer.Event.TimeChanged -> {
                             currentPosition = event.timeChanged
@@ -531,11 +597,11 @@ fun CustomVideoPlayer(
             }
         }
 
-        // Custom Overlay Controls (Transitions & Fade effects)
+        // Custom Overlay Controls (Fades in/out smoothly)
         AnimatedVisibility(
             visible = showControls,
-            enter = fadeIn() + expandVertically(),
-            exit = fadeOut() + shrinkVertically()
+            enter = fadeIn(animationSpec = tween(durationMillis = 400)),
+            exit = fadeOut(animationSpec = tween(durationMillis = 400))
         ) {
             Box(
                 modifier = Modifier
@@ -560,7 +626,7 @@ fun CustomVideoPlayer(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     IconButton(
-                        onClick = onClosePlayer,
+                        onClick = closeAndSaveProgress,
                         modifier = Modifier.background(Color.Black.copy(alpha = 0.5f), CircleShape)
                     ) {
                         Icon(
@@ -605,6 +671,30 @@ fun CustomVideoPlayer(
                                 )
                             }
                         }
+                    }
+
+                    Spacer(modifier = Modifier.width(8.dp))
+
+                    IconButton(
+                        onClick = {
+                            val activity = context.findActivity()
+                            if (activity != null) {
+                                val currentOrient = activity.requestedOrientation
+                                val targetOrient = if (currentOrient == ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE) {
+                                    ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+                                } else {
+                                    ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+                                }
+                                activity.requestedOrientation = targetOrient
+                            }
+                        },
+                        modifier = Modifier.background(Color.Black.copy(alpha = 0.5f), CircleShape)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.ScreenRotation,
+                            contentDescription = "Rotacionar tela",
+                            tint = GoldMetallic
+                        )
                     }
 
                     Spacer(modifier = Modifier.width(8.dp))
@@ -778,15 +868,28 @@ fun CustomVideoPlayer(
 
                     val maxRange = duration.toFloat().coerceAtLeast(1f)
                     val sliderValue = currentPosition.toFloat().coerceIn(0f, maxRange)
-                    Slider(
+                    
+                    MetallicSlider(
                         value = sliderValue,
                         onValueChange = {
                             val targetMs = it.toLong()
                             try {
                                 if (decoderMode == "SW") {
-                                    vlcMediaPlayer.time = targetMs
+                                    if (targetMs < duration) {
+                                        if (!vlcMediaPlayer.isPlaying) {
+                                            vlcMediaPlayer.play()
+                                            isPlaying = true
+                                        }
+                                        vlcMediaPlayer.time = targetMs
+                                    } else {
+                                        vlcMediaPlayer.time = targetMs
+                                    }
                                 } else {
                                     exoPlayer.seekTo(targetMs)
+                                    if (exoPlayer.playbackState == Player.STATE_ENDED || !exoPlayer.playWhenReady) {
+                                        exoPlayer.play()
+                                        isPlaying = true
+                                    }
                                 }
                             } catch (e: Exception) {
                                 android.util.Log.e("CustomVideoPlayer", "Erro ao deslizar posição: ${e.message}", e)
@@ -794,11 +897,6 @@ fun CustomVideoPlayer(
                             currentPosition = targetMs
                         },
                         valueRange = 0f..maxRange,
-                        colors = SliderDefaults.colors(
-                            activeTrackColor = GoldMetallic,
-                            inactiveTrackColor = Color.White.copy(alpha = 0.3f),
-                            thumbColor = BrightGold
-                        ),
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(vertical = 4.dp)
@@ -1108,4 +1206,122 @@ private fun formatTime(millis: Long): String {
     } else {
         String.format("%02d:%02d", minutes, seconds)
     }
+}
+
+@Composable
+fun MetallicSlider(
+    value: Float,
+    onValueChange: (Float) -> Unit,
+    valueRange: ClosedFloatingPointRange<Float>,
+    modifier: Modifier = Modifier
+) {
+    val rangeStart = valueRange.start
+    val rangeEnd = valueRange.endInclusive
+    val totalRange = (rangeEnd - rangeStart).coerceAtLeast(1f)
+    val progressFraction = ((value - rangeStart) / totalRange).coerceIn(0f, 1f)
+
+    BoxWithConstraints(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(28.dp),
+        contentAlignment = Alignment.CenterStart
+    ) {
+        val widthPx = constraints.maxWidth.toFloat()
+        
+        fun updatePosition(offsetX: Float) {
+            val fraction = (offsetX / widthPx).coerceIn(0f, 1f)
+            val newValue = rangeStart + (fraction * totalRange)
+            onValueChange(newValue)
+        }
+
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(28.dp)
+                .pointerInput(widthPx) {
+                    detectTapGestures(
+                        onPress = { offset ->
+                            updatePosition(offset.x)
+                        }
+                    )
+                }
+                .pointerInput(widthPx) {
+                    detectHorizontalDragGestures(
+                        onDragStart = { },
+                        onDragEnd = { },
+                        onDragCancel = { },
+                        onHorizontalDrag = { _, dragAmount ->
+                            val currentOffset = progressFraction * widthPx
+                            val targetOffset = currentOffset + dragAmount
+                            updatePosition(targetOffset)
+                        }
+                    )
+                }
+                .padding(vertical = 11.dp) // center the 6dp bar in 28dp height
+        ) {
+            // Background Track: dark brushed metallic matte gray with premium outline
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clip(RoundedCornerShape(3.dp))
+                    .background(Color(0xFF202226))
+                    .border(
+                        0.5.dp, 
+                        Color.White.copy(alpha = 0.05f), 
+                        RoundedCornerShape(3.dp)
+                    )
+            )
+
+            // Active Track: gorgeous horizontal glowing gradient representing premium media
+            Box(
+                modifier = Modifier
+                    .fillMaxHeight()
+                    .fillMaxWidth(progressFraction)
+                    .clip(RoundedCornerShape(3.dp))
+                    .background(
+                        Brush.horizontalGradient(
+                            colors = listOf(
+                                Color(0xFFC59500), // Shadow gold start
+                                Color(0xFFFFD700), // Rich classic gold
+                                Color(0xFFFFF7D6), // Specular glow shine
+                                Color(0xFFFFD700)  // Tail gold
+                            )
+                        )
+                    )
+            )
+        }
+
+        // Sleek Modern Knob with subtle glowing LED effect
+        val thumbWidth = 14.dp
+        val density = androidx.compose.ui.platform.LocalDensity.current
+        val thumbWidthPx = with(density) { thumbWidth.toPx() }
+        val thumbOffset = (progressFraction * widthPx) - (thumbWidthPx / 2f)
+        val maxOffset = widthPx - thumbWidthPx
+        val clampedOffsetDp = with(density) { thumbOffset.coerceIn(0f, maxOffset).toDp() }
+
+        Box(
+            modifier = Modifier
+                .offset(x = clampedOffsetDp)
+                .size(thumbWidth)
+                .clip(CircleShape)
+                .background(Color.White)
+                .border(2.5.dp, Color(0xFFFFD700), CircleShape)
+                .ledGlow(
+                    color = Color(0xFFFFD700),
+                    borderRadius = 7.dp,
+                    glowRadius = 8.dp,
+                    enabled = true
+                )
+        )
+    }
+}
+
+// Extension to retrieve Activity safely in Compose
+private fun Context.findActivity(): Activity? {
+    var context = this
+    while (context is ContextWrapper) {
+        if (context is Activity) return context
+        context = context.baseContext
+    }
+    return null
 }

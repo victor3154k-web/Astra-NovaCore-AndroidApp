@@ -60,6 +60,8 @@ fun DashboardScreen(
     val isGridView by viewModel.isGridView.collectAsState()
     val searchQuery by viewModel.searchQuery.collectAsState()
     val isImporting by viewModel.isImporting.collectAsState()
+    val titleLogoType by viewModel.titleLogoType.collectAsState()
+    val customLogoPath by viewModel.customLogoPath.collectAsState()
 
     // UI state
     var showAddDialog by remember { mutableStateOf(false) }
@@ -167,9 +169,9 @@ fun DashboardScreen(
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
                             modifier = Modifier.padding(start = 2.dp)
                         ) {
-                            Image(
-                                painter = painterResource(id = com.example.R.drawable.anc_play_icon_1781702460435),
-                                contentDescription = "ANC Play Logo",
+                            LogoImage(
+                                logoType = titleLogoType,
+                                customLogoPath = customLogoPath,
                                 modifier = Modifier
                                     .size(42.dp)
                                     .alpha(iconAlpha.value)
@@ -237,6 +239,15 @@ fun DashboardScreen(
                                         leadingIcon = { Icon(Icons.Default.Link, contentDescription = null, tint = activeAccentColor, modifier = Modifier.size(18.dp)) },
                                         onClick = {
                                             showUrlDialog = true
+                                            showMoreMenu = false
+                                        }
+                                    )
+                                    Divider(color = BorderGray, modifier = Modifier.padding(vertical = 4.dp))
+                                    DropdownMenuItem(
+                                        text = { Text("Definições", color = Color.White, fontSize = 13.sp) },
+                                        leadingIcon = { Icon(Icons.Default.Settings, contentDescription = null, tint = activeAccentColor, modifier = Modifier.size(18.dp)) },
+                                        onClick = {
+                                            viewModel.setShowSettingsScreen(true)
                                             showMoreMenu = false
                                         }
                                     )
