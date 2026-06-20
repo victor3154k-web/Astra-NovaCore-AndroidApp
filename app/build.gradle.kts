@@ -99,6 +99,7 @@ dependencies {
   implementation(libs.libvlc) {
       exclude(group = "com.android.support")
   }
+  // implementation(libs.ffmpeg.kit)
   implementation(libs.converter.moshi)
   // implementation(libs.firebase.ai)
   implementation(libs.kotlinx.coroutines.android)

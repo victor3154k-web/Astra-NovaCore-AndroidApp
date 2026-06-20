@@ -636,16 +636,42 @@ fun CustomVideoPlayer(
                         )
                     }
 
-                    Text(
-                        text = video.title,
-                        color = Color.White,
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        maxLines = 1,
+                    Row(
                         modifier = Modifier
                             .weight(1f)
-                            .padding(horizontal = 16.dp)
-                    )
+                            .padding(horizontal = 16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text(
+                            text = video.title,
+                            color = Color.White,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1,
+                            modifier = Modifier.weight(1f, fill = false)
+                        )
+
+                        // Backend Engine Badge derived from player context SharedPreferences
+                        val prefs = remember { context.getSharedPreferences("gold_player_settings", android.content.Context.MODE_PRIVATE) }
+                        val activeLibrary = remember { prefs.getString("dual_library_backend", "vlc") ?: "vlc" }
+                        val badgeText = if (activeLibrary == "vlc") "VLC" else "FFmpeg"
+                        val badgeColor = if (activeLibrary == "vlc") Color(0xFFFFA726) else GoldMetallic
+
+                        Box(
+                            modifier = Modifier
+                                .background(badgeColor.copy(alpha = 0.12f), RoundedCornerShape(6.dp))
+                                .border(0.5.dp, badgeColor.copy(alpha = 0.35f), RoundedCornerShape(6.dp))
+                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                        ) {
+                            Text(
+                                text = badgeText.uppercase(),
+                                color = badgeColor,
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Black
+                            )
+                        }
+                    }
 
                     // Decoder selection toggle
                     Row(

@@ -65,6 +65,8 @@ fun SettingsScreen(
     var pbyExpanded by rememberSaveable { mutableStateOf(false) }
     var logoExpanded by rememberSaveable { mutableStateOf(false) }
     var cpuExpanded by rememberSaveable { mutableStateOf(false) }
+    var dualLibExpanded by rememberSaveable { mutableStateOf(false) }
+    val dualLibrary by viewModel.dualLibrary.collectAsState()
 
     val launcher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
@@ -462,6 +464,158 @@ fun SettingsScreen(
                         fontWeight = FontWeight.Bold,
                         modifier = Modifier.align(Alignment.End)
                     )
+                }
+            }
+
+            // Dual Library Selection (Gaveta)
+            SettingsSectionDrawer(
+                title = "Biblioteca Dupla (Dual Library)",
+                subtitle = "Escolha entre MobileVLCKit e FFmpeg",
+                icon = Icons.Default.Build,
+                expanded = dualLibExpanded,
+                onExpandToggle = { dualLibExpanded = !dualLibExpanded },
+                activeAccentColor = activeAccentColor
+            ) {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Text(
+                        text = "Selecione a biblioteca de engine de vídeo padrão:",
+                        color = Color.White.copy(alpha = 0.8f),
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+
+                    // Card for MobileVLCKit (vlc)
+                    val isVlcSelected = dualLibrary == "vlc"
+                    Card(
+                        colors = CardDefaults.cardColors(
+                            containerColor = if (isVlcSelected) activeAccentColor.copy(alpha = 0.05f) else Color.Black.copy(alpha = 0.2f)
+                        ),
+                        shape = RoundedCornerShape(16.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { viewModel.setDualLibrary("vlc") }
+                            .border(
+                                width = if (isVlcSelected) 1.5.dp else 1.dp,
+                                color = if (isVlcSelected) activeAccentColor else Color.White.copy(alpha = 0.08f),
+                                shape = RoundedCornerShape(16.dp)
+                            )
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(14.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(14.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(38.dp)
+                                    .clip(CircleShape)
+                                    .background(if (isVlcSelected) activeAccentColor.copy(alpha = 0.15f) else Color.White.copy(alpha = 0.05f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.PlayArrow,
+                                    contentDescription = null,
+                                    tint = if (isVlcSelected) activeAccentColor else Color.White.copy(alpha = 0.5f),
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "MobileVLCKit Backend",
+                                    color = Color.White,
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    text = "Uma Bliblioteca de Alta Performance.",
+                                    color = LightGray,
+                                    fontSize = 11.sp,
+                                    lineHeight = 15.sp,
+                                    modifier = Modifier.padding(top = 2.dp)
+                                )
+                            }
+
+                            RadioButton(
+                                selected = isVlcSelected,
+                                onClick = { viewModel.setDualLibrary("vlc") },
+                                colors = RadioButtonDefaults.colors(
+                                    selectedColor = activeAccentColor,
+                                    unselectedColor = Color.White.copy(alpha = 0.3f)
+                                )
+                            )
+                        }
+                    }
+
+                    // Card for FFmpeg (ffmpeg)
+                    val isFfmpegSelected = dualLibrary == "ffmpeg"
+                    Card(
+                        colors = CardDefaults.cardColors(
+                            containerColor = if (isFfmpegSelected) activeAccentColor.copy(alpha = 0.05f) else Color.Black.copy(alpha = 0.2f)
+                        ),
+                        shape = RoundedCornerShape(16.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { viewModel.setDualLibrary("ffmpeg") }
+                            .border(
+                                width = if (isFfmpegSelected) 1.5.dp else 1.dp,
+                                color = if (isFfmpegSelected) activeAccentColor else Color.White.copy(alpha = 0.08f),
+                                shape = RoundedCornerShape(16.dp)
+                            )
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(14.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(14.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(38.dp)
+                                    .clip(CircleShape)
+                                    .background(if (isFfmpegSelected) activeAccentColor.copy(alpha = 0.15f) else Color.White.copy(alpha = 0.05f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Settings,
+                                    contentDescription = null,
+                                    tint = if (isFfmpegSelected) activeAccentColor else Color.White.copy(alpha = 0.5f),
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "FFmpeg Engine Backend",
+                                    color = Color.White,
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    text = "Essa Bliblioteca Focada em compatibilidade melhor.",
+                                    color = LightGray,
+                                    fontSize = 11.sp,
+                                    lineHeight = 15.sp,
+                                    modifier = Modifier.padding(top = 2.dp)
+                                )
+                            }
+
+                            RadioButton(
+                                selected = isFfmpegSelected,
+                                onClick = { viewModel.setDualLibrary("ffmpeg") },
+                                colors = RadioButtonDefaults.colors(
+                                    selectedColor = activeAccentColor,
+                                    unselectedColor = Color.White.copy(alpha = 0.3f)
+                                )
+                            )
+                        }
+                    }
                 }
             }
 

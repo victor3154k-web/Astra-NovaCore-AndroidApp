@@ -138,6 +138,15 @@ class VideoViewModel(application: Application) : AndroidViewModel(application) {
         prefs.edit().putInt("cpu_cores_allocated", coerced).apply()
     }
 
+    // Dual Library backend configuration (vlc = MobileVLCKit, ffmpeg = FFmpeg-Kit)
+    private val _dualLibrary = MutableStateFlow(prefs.getString("dual_library_backend", "vlc") ?: "vlc")
+    val dualLibrary: StateFlow<String> = _dualLibrary.asStateFlow()
+
+    fun setDualLibrary(backend: String) {
+        _dualLibrary.value = backend
+        prefs.edit().putString("dual_library_backend", backend).apply()
+    }
+
     // Settings Screen visibility state
     private val _showSettingsScreen = MutableStateFlow(false)
     val showSettingsScreen: StateFlow<Boolean> = _showSettingsScreen.asStateFlow()
