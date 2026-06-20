@@ -92,10 +92,10 @@ dependencies {
   implementation(libs.androidx.room.runtime)
   implementation(libs.coil.compose)
   implementation(libs.coil.gif)
-  implementation(libs.androidx.media3.exoplayer)
-  implementation(libs.androidx.media3.ui)
-  implementation(libs.androidx.media3.common)
-  implementation(libs.androidx.media3.hls)
+  // implementation(libs.androidx.media3.exoplayer)
+  // implementation(libs.androidx.media3.ui)
+  // implementation(libs.androidx.media3.common)
+  // implementation(libs.androidx.media3.hls)
   implementation(libs.libvlc) {
       exclude(group = "com.android.support")
   }

@@ -38,12 +38,6 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
-import androidx.media3.common.MediaItem
-import androidx.media3.common.Player
-import androidx.media3.common.util.UnstableApi
-import androidx.media3.exoplayer.DefaultRenderersFactory
-import androidx.media3.exoplayer.ExoPlayer
-import androidx.media3.ui.PlayerView
 import org.videolan.libvlc.LibVLC
 import org.videolan.libvlc.Media
 import org.videolan.libvlc.MediaPlayer
@@ -55,7 +49,6 @@ import com.example.ui.theme.*
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-@OptIn(UnstableApi::class)
 @Composable
 fun CustomVideoPlayer(
     video: SavedVideo,
@@ -81,8 +74,12 @@ fun CustomVideoPlayer(
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
 
-    // Initialize LibVLC for Software (SW) decoding with high-performance args for complicated codecs
-    val libVlc = remember {
+    // Read the active dual library backend preference
+    val prefs = remember { context.getSharedPreferences("gold_player_settings", android.content.Context.MODE_PRIVATE) }
+    val activeLibrary = remember { prefs.getString("dual_library_backend", "vlc") ?: "vlc" }
+
+    // Initialize LibVLC dynamically based on decoderMode and activeLibrary
+    val libVlc = remember(decoderMode, activeLibrary) {
         val options = ArrayList<String>()
         options.add("--no-sub-autodetect-file")
         options.add("--extraintf=android_audiotrack")
@@ -90,30 +87,37 @@ fun CustomVideoPlayer(
         options.add("--file-caching=2500")
         options.add("--network-caching=4000")
         options.add("--live-caching=1500")
-        options.add("--codec=all")
-        // Threaded operations: utilize multi-threaded software decoding for high-complexity codecs
-        options.add("--avcodec-threads=4")
-        options.add("--avcodec-skiploopfilter=4") // Skip loop filter on high complexity files when decoding slows down
-        options.add("--avcodec-fast") // Allow quick-decoding tweaks
-        options.add("--drop-late-frames") // Synchronize and drop extremely late video frames if bottle-necks occur
-        options.add("--skip-frames") // Prevent system freeze on massive frame jams
+        
+        if (activeLibrary == "ffmpeg") {
+            // Prioritize FFmpeg avcodec decoder module
+            options.add("--codec=avcodec,all")
+            // Ensure async decoding and multi-threading options for FFmpeg
+            options.add("--avcodec-threads=4") // Threaded software slice/frame decoding
+            options.add("--avcodec-skiploopfilter=4") // Skip loop filter on complex frames for fast, non-blocking rendering
+            options.add("--avcodec-fast") // Optimized speed-ups for async rendering
+            options.add("--async") // Enable asynchronous audio/video sync
+            options.add("--drop-late-frames") // Synchronize and drop late frames asynchronously
+            options.add("--clock-synchro=0") // Async clock timing synchronization
+        } else {
+            if (decoderMode == "HW") {
+                // Enable hardware acceleration modules in VLC (MediaCodec)
+                options.add("--codec=mediacodec_ndk,mediacodec_jni,all")
+            } else {
+                // Software decoding only
+                options.add("--codec=all")
+                // Threaded operations: utilize multi-threaded software decoding for high-complexity codecs
+                options.add("--avcodec-threads=4")
+                options.add("--avcodec-skiploopfilter=4") // Skip loop filter on high complexity files when decoding slows down
+                options.add("--avcodec-fast") // Allow quick-decoding tweaks
+                options.add("--drop-late-frames") // Synchronize and drop extremely late video frames if bottle-necks occur
+                options.add("--skip-frames") // Prevent system freeze on massive frame jams
+            }
+        }
         LibVLC(context, options)
     }
 
     val vlcMediaPlayer = remember(libVlc) {
         MediaPlayer(libVlc)
-    }
-
-    // Initialize ExoPlayer once with adaptive renderers (hardware prefer, with robust software fallbacks)
-    val exoPlayer = remember {
-        val renderersFactory = DefaultRenderersFactory(context).apply {
-            setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON)
-        }
-        ExoPlayer.Builder(context)
-            .setRenderersFactory(renderersFactory)
-            .build().apply {
-                playWhenReady = true
-            }
     }
 
     // Track state
@@ -152,15 +156,10 @@ fun CustomVideoPlayer(
         }
     }
 
-    // Apply Audio Boost live to VLC and ExoPlayer when it changes
-    LaunchedEffect(audioBoostLevel, decoderMode) {
+    // Apply Audio Boost live to VLC when it changes
+    LaunchedEffect(audioBoostLevel) {
         try {
-            if (decoderMode == "SW") {
-                vlcMediaPlayer.volume = audioBoostLevel.coerceIn(0, 300)
-            } else {
-                val baseVolume = (audioBoostLevel.toFloat() / 100f).coerceIn(0f, 1f)
-                exoPlayer.volume = baseVolume
-            }
+            vlcMediaPlayer.volume = audioBoostLevel.coerceIn(0, 300)
         } catch (e: Exception) {
             android.util.Log.e("CustomVideoPlayer", "Erro ao aplicar Audio Boost: ${e.message}")
         }
@@ -271,72 +270,41 @@ fun CustomVideoPlayer(
         }
     }
 
-    // Load media item conditionally based on decoder mode
-    LaunchedEffect(video, decoderMode, exoPlayer, vlcMediaPlayer) {
+    // Load media item via LibVLC
+    LaunchedEffect(video, vlcMediaPlayer) {
         try {
-            if (decoderMode == "SW") {
-                // Stop and release ExoPlayer
-                try {
-                    exoPlayer.stop()
-                } catch (e: Exception) {}
-                
-                // Configure LibVLC media
-                val file = java.io.File(video.localUri)
-                val media = if (file.exists()) {
-                    Media(libVlc, file.absolutePath)
-                } else {
-                    Media(libVlc, android.net.Uri.parse(video.localUri))
-                }
-                
-                vlcMediaPlayer.media = media
-                media.release()
-                
-                vlcMediaPlayer.play()
-                
-                // Wait slightly for player to initialize before setting position and options
-                delay(200)
-                if (video.playbackPositionMs > 0 && video.durationMs > 0) {
-                    val floatPos = (video.playbackPositionMs.toFloat() / video.durationMs.toFloat()).coerceIn(0f, 1f)
-                    vlcMediaPlayer.position = floatPos
-                }
-                vlcMediaPlayer.rate = playbackSpeed
-                isPlaying = true
+            // Configure LibVLC media
+            val file = java.io.File(video.localUri)
+            val media = if (file.exists()) {
+                Media(libVlc, file.absolutePath)
             } else {
-                // Stop and release VLC MediaPlayer
-                try {
-                    vlcMediaPlayer.stop()
-                } catch (e: Exception) {}
-                
-                val uri = video.localUri
-                val mediaItem = if (uri.startsWith("/")) {
-                    MediaItem.fromUri(android.net.Uri.fromFile(java.io.File(uri)))
-                } else {
-                    MediaItem.fromUri(uri)
-                }
-                exoPlayer.setMediaItem(mediaItem)
-                exoPlayer.seekTo(video.playbackPositionMs)
-                exoPlayer.prepare()
-                exoPlayer.playWhenReady = true
-                isPlaying = true
+                Media(libVlc, android.net.Uri.parse(video.localUri))
             }
+            
+            vlcMediaPlayer.media = media
+            media.release()
+            
+            vlcMediaPlayer.play()
+            
+            // Wait slightly for player to initialize before setting position and options
+            delay(250)
+            val totalDuration = if (duration > 0) duration else (if (video.durationMs > 0) video.durationMs else 1L)
+            val posToSeek = if (currentPosition > 0) currentPosition else video.playbackPositionMs
+            if (posToSeek > 0 && totalDuration > 0) {
+                val floatPos = (posToSeek.toFloat() / totalDuration.toFloat()).coerceIn(0f, 1f)
+                vlcMediaPlayer.position = floatPos
+            }
+            vlcMediaPlayer.rate = playbackSpeed
+            isPlaying = true
         } catch (e: Exception) {
             android.util.Log.e("CustomVideoPlayer", "Erro ao iniciar mídia no player: ${e.message}", e)
         }
     }
 
-    // Control repeat mode dynamically for ExoPlayer
-    LaunchedEffect(exoPlayer, autoRepeatEnabled) {
-        exoPlayer.repeatMode = if (autoRepeatEnabled) Player.REPEAT_MODE_ONE else Player.REPEAT_MODE_OFF
-    }
-
     // Apply speed settings
-    LaunchedEffect(exoPlayer, vlcMediaPlayer, playbackSpeed, decoderMode) {
+    LaunchedEffect(vlcMediaPlayer, playbackSpeed) {
         try {
-            if (decoderMode == "SW") {
-                vlcMediaPlayer.rate = playbackSpeed
-            } else {
-                exoPlayer.setPlaybackSpeed(playbackSpeed)
-            }
+            vlcMediaPlayer.rate = playbackSpeed
         } catch (e: Exception) {
             android.util.Log.e("CustomVideoPlayer", "Erro ao alterar velocidade de reprodução: ${e.message}", e)
         }
@@ -345,7 +313,6 @@ fun CustomVideoPlayer(
     val closeAndSaveProgress: () -> Unit = {
         isPlaying = false
         try {
-            exoPlayer.pause()
             vlcMediaPlayer.pause()
         } catch (e: Exception) {}
         val isCompleted = duration > 0 && currentPosition >= (duration - 4000)
@@ -362,92 +329,57 @@ fun CustomVideoPlayer(
     val currentAutoRepeatEnabled by rememberUpdatedState(autoRepeatEnabled)
     val currentOnClosePlayer by rememberUpdatedState(onClosePlayer)
 
-    // Listen for ExoPlayer events
-    DisposableEffect(exoPlayer, decoderMode) {
-        val listener = object : Player.Listener {
-            override fun onIsPlayingChanged(playing: Boolean) {
-                if (decoderMode != "SW") {
-                    isPlaying = playing
-                }
-            }
-            
-            override fun onPlaybackStateChanged(playbackState: Int) {
-                if (decoderMode != "SW") {
-                    if (playbackState == Player.STATE_READY) {
-                        duration = exoPlayer.duration
-                    } else if (playbackState == Player.STATE_ENDED) {
-                        if (!currentAutoRepeatEnabled) {
-                            currentCloseAndSaveProgress()
-                        }
-                    }
-                }
-            }
-
-            override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
-                playbackError = PlayerNotification(
-                    title = "REPRODUÇÃO SEGURA (SW)",
-                    message = "Falha no decodificador físico (HW). Alternando automaticamente para decodificador de Software (SW) para continuar...",
-                    isSuggestion = false
-                )
-                if (decoderMode == "HW") {
-                    onChangeDecoder("SW")
-                }
-            }
-        }
-        exoPlayer.addListener(listener)
-        onDispose {
-            try {
-                exoPlayer.removeListener(listener)
-            } catch (e: Exception) {}
-        }
-    }
-
     // Listen for LibVLC events
-    DisposableEffect(vlcMediaPlayer, decoderMode) {
-        if (decoderMode == "SW") {
-            try {
-                vlcMediaPlayer.setEventListener { event ->
-                    when (event.type) {
-                        MediaPlayer.Event.Playing -> {
-                            isPlaying = true
-                        }
-                        MediaPlayer.Event.Paused -> {
-                            isPlaying = false
-                        }
-                        MediaPlayer.Event.Stopped -> {
-                            isPlaying = false
-                        }
-                        MediaPlayer.Event.EndReached -> {
-                            isPlaying = false
-                            if (currentAutoRepeatEnabled) {
-                                coroutineScope.launch {
-                                    try {
-                                        vlcMediaPlayer.stop()
-                                        delay(100)
-                                        vlcMediaPlayer.play()
-                                        isPlaying = true
-                                    } catch (e: Exception) {}
-                                }
-                            } else {
-                                coroutineScope.launch {
-                                    currentCloseAndSaveProgress()
-                                }
+    DisposableEffect(vlcMediaPlayer) {
+        try {
+            vlcMediaPlayer.setEventListener { event ->
+                when (event.type) {
+                    MediaPlayer.Event.Playing -> {
+                        isPlaying = true
+                    }
+                    MediaPlayer.Event.Paused -> {
+                        isPlaying = false
+                    }
+                    MediaPlayer.Event.Stopped -> {
+                        isPlaying = false
+                    }
+                    MediaPlayer.Event.EndReached -> {
+                        isPlaying = false
+                        if (currentAutoRepeatEnabled) {
+                            coroutineScope.launch {
+                                try {
+                                    vlcMediaPlayer.stop()
+                                    delay(100)
+                                    vlcMediaPlayer.play()
+                                    isPlaying = true
+                                } catch (e: Exception) {}
                             }
-                        }
-                        MediaPlayer.Event.TimeChanged -> {
-                            currentPosition = event.timeChanged
-                            onPlaybackPositionUpdate(video.id, event.timeChanged)
-                        }
-                        MediaPlayer.Event.LengthChanged -> {
-                            if (event.lengthChanged > 0) {
-                                duration = event.lengthChanged
+                        } else {
+                            coroutineScope.launch {
+                                currentCloseAndSaveProgress()
                             }
                         }
                     }
+                    MediaPlayer.Event.TimeChanged -> {
+                        currentPosition = event.timeChanged
+                        onPlaybackPositionUpdate(video.id, event.timeChanged)
+                    }
+                    MediaPlayer.Event.LengthChanged -> {
+                        if (event.lengthChanged > 0) {
+                            duration = event.lengthChanged
+                        }
+                    }
+                    MediaPlayer.Event.EncounteredError -> {
+                        playbackError = PlayerNotification(
+                            title = "ERRO DE DECODIFICAÇÃO",
+                            message = "Falha crítica no reprodutor VLC/FFmpeg ao ler este formato.",
+                            isSuggestion = false
+                        )
+                    }
                 }
-            } catch (e: Exception) {
-                android.util.Log.e("CustomVideoPlayer", "Erro ao configurar escuta de eventos do VLC: ${e.message}", e)
             }
+        } catch (e: Exception) {
+            android.util.Log.e("CustomVideoPlayer", "Erro ao configurar escuta de eventos do VLC: ${e.message}", e)
         }
         onDispose {
             try {
@@ -464,23 +396,7 @@ fun CustomVideoPlayer(
                 vlcMediaPlayer.stop()
                 vlcMediaPlayer.release()
                 libVlc.release()
-                exoPlayer.release()
             } catch (e: Exception) {}
-        }
-    }
-
-    // Position updates collector for ExoPlayer
-    LaunchedEffect(isPlaying, exoPlayer, decoderMode) {
-        while (isPlaying) {
-            try {
-                if (decoderMode != "SW") {
-                    currentPosition = exoPlayer.currentPosition
-                    onPlaybackPositionUpdate(video.id, currentPosition)
-                }
-            } catch (e: java.lang.Exception) {
-                android.util.Log.e("CustomVideoPlayer", "Erro ao solicitar posição de reprodução do ExoPlayer: ${e.message}")
-            }
-            delay(100) // Update position every 100ms
         }
     }
 
@@ -566,71 +482,49 @@ fun CustomVideoPlayer(
                 }
         ) {
             // Nested content starts here
-        // Player View
-        if (decoderMode == "SW") {
-            AndroidView(
-                factory = { ctx ->
-                    SurfaceView(ctx).apply {
-                        layoutParams = FrameLayout.LayoutParams(
-                            ViewGroup.LayoutParams.MATCH_PARENT,
-                            ViewGroup.LayoutParams.MATCH_PARENT
-                        )
-                        holder.addCallback(object : SurfaceHolder.Callback {
-                            override fun surfaceCreated(holder: SurfaceHolder) {
-                                vlcMediaPlayer.getVLCVout().setVideoView(this@apply)
-                                vlcMediaPlayer.getVLCVout().attachViews()
-                            }
+         // Player View
+         key(vlcMediaPlayer) {
+             AndroidView(
+                 factory = { ctx ->
+                     SurfaceView(ctx).apply {
+                         layoutParams = FrameLayout.LayoutParams(
+                             ViewGroup.LayoutParams.MATCH_PARENT,
+                             ViewGroup.LayoutParams.MATCH_PARENT
+                         )
+                         holder.addCallback(object : SurfaceHolder.Callback {
+                             override fun surfaceCreated(holder: SurfaceHolder) {
+                                 vlcMediaPlayer.getVLCVout().setVideoView(this@apply)
+                                 vlcMediaPlayer.getVLCVout().attachViews()
+                             }
 
-                            override fun surfaceChanged(
-                                holder: SurfaceHolder,
-                                format: Int,
-                                width: Int,
-                                height: Int
-                            ) {
-                                vlcMediaPlayer.getVLCVout().setWindowSize(width, height)
-                            }
+                             override fun surfaceChanged(
+                                 holder: SurfaceHolder,
+                                 format: Int,
+                                 width: Int,
+                                 height: Int
+                             ) {
+                                 vlcMediaPlayer.getVLCVout().setWindowSize(width, height)
+                             }
 
-                            override fun surfaceDestroyed(holder: SurfaceHolder) {
-                                try {
-                                    if (vlcMediaPlayer.isPlaying) {
-                                        vlcMediaPlayer.pause()
-                                    }
-                                } catch (e: Exception) {}
-                                vlcMediaPlayer.getVLCVout().detachViews()
-                            }
-                        })
-                    }
-                },
-                onRelease = {
-                    try {
-                        vlcMediaPlayer.getVLCVout().detachViews()
-                    } catch (e: Exception) {}
-                },
-                modifier = Modifier.fillMaxSize()
-            )
-        } else {
-            AndroidView(
-                factory = { ctx ->
-                    PlayerView(ctx).apply {
-                        player = exoPlayer
-                        useController = false // Use custom beautiful overlay controls
-                        layoutParams = FrameLayout.LayoutParams(
-                            ViewGroup.LayoutParams.MATCH_PARENT,
-                            ViewGroup.LayoutParams.MATCH_PARENT
-                        )
-                    }
-                },
-                update = { view ->
-                    view.player = exoPlayer
-                },
-                onRelease = { view ->
-                    try {
-                        view.player = null
-                    } catch (e: Exception) {}
-                },
-                modifier = Modifier.fillMaxSize()
-            )
-        }
+                             override fun surfaceDestroyed(holder: SurfaceHolder) {
+                                 try {
+                                     if (vlcMediaPlayer.isPlaying) {
+                                         vlcMediaPlayer.pause()
+                                     }
+                                 } catch (e: Exception) {}
+                                 vlcMediaPlayer.getVLCVout().detachViews()
+                             }
+                         })
+                     }
+                 },
+                 onRelease = {
+                     try {
+                         vlcMediaPlayer.getVLCVout().detachViews()
+                     } catch (e: Exception) {}
+                 },
+                 modifier = Modifier.fillMaxSize()
+             )
+         }
 
         // Simultaneous Subtitles Layers
         Column(
@@ -742,8 +636,6 @@ fun CustomVideoPlayer(
                         )
 
                         // Backend Engine Badge derived from player context SharedPreferences
-                        val prefs = remember { context.getSharedPreferences("gold_player_settings", android.content.Context.MODE_PRIVATE) }
-                        val activeLibrary = remember { prefs.getString("dual_library_backend", "vlc") ?: "vlc" }
                         val badgeText = if (activeLibrary == "vlc") "VLC" else "FFmpeg"
                         val badgeColor = if (activeLibrary == "vlc") Color(0xFFFFA726) else GoldMetallic
 
@@ -849,13 +741,9 @@ fun CustomVideoPlayer(
                     IconButton(
                         onClick = {
                             try {
-                                val currentPos = if (decoderMode == "SW") vlcMediaPlayer.time else exoPlayer.currentPosition
+                                val currentPos = vlcMediaPlayer.time
                                 val newPos = (currentPos - 10000).coerceAtLeast(0)
-                                if (decoderMode == "SW") {
-                                    vlcMediaPlayer.time = newPos
-                                } else {
-                                    exoPlayer.seekTo(newPos)
-                                }
+                                vlcMediaPlayer.time = newPos
                                 currentPosition = newPos
                             } catch (e: Exception) {
                                 android.util.Log.e("CustomVideoPlayer", "Erro ao retroceder: ${e.message}", e)
@@ -878,18 +766,10 @@ fun CustomVideoPlayer(
                         onClick = {
                             try {
                                 if (isPlaying) {
-                                    if (decoderMode == "SW") {
-                                        vlcMediaPlayer.pause()
-                                    } else {
-                                        exoPlayer.pause()
-                                    }
+                                    vlcMediaPlayer.pause()
                                     isPlaying = false
                                 } else {
-                                    if (decoderMode == "SW") {
-                                        vlcMediaPlayer.play()
-                                    } else {
-                                        exoPlayer.play()
-                                    }
+                                    vlcMediaPlayer.play()
                                     isPlaying = true
                                 }
                             } catch (e: Exception) {
@@ -912,13 +792,9 @@ fun CustomVideoPlayer(
                     IconButton(
                         onClick = {
                             try {
-                                val currentPos = if (decoderMode == "SW") vlcMediaPlayer.time else exoPlayer.currentPosition
+                                val currentPos = vlcMediaPlayer.time
                                 val newPos = (currentPos + 10000).coerceAtMost(duration)
-                                if (decoderMode == "SW") {
-                                    vlcMediaPlayer.time = newPos
-                                } else {
-                                    exoPlayer.seekTo(newPos)
-                                }
+                                vlcMediaPlayer.time = newPos
                                 currentPosition = newPos
                             } catch (e: Exception) {
                                 android.util.Log.e("CustomVideoPlayer", "Erro ao avançar: ${e.message}", e)
@@ -1002,22 +878,14 @@ fun CustomVideoPlayer(
                         onValueChange = {
                             val targetMs = it.toLong()
                             try {
-                                if (decoderMode == "SW") {
-                                    if (targetMs < duration) {
-                                        if (!vlcMediaPlayer.isPlaying) {
-                                            vlcMediaPlayer.play()
-                                            isPlaying = true
-                                        }
-                                        vlcMediaPlayer.time = targetMs
-                                    } else {
-                                        vlcMediaPlayer.time = targetMs
-                                    }
-                                } else {
-                                    exoPlayer.seekTo(targetMs)
-                                    if (exoPlayer.playbackState == Player.STATE_ENDED || !exoPlayer.playWhenReady) {
-                                        exoPlayer.play()
+                                if (targetMs < duration) {
+                                    if (!vlcMediaPlayer.isPlaying) {
+                                        vlcMediaPlayer.play()
                                         isPlaying = true
                                     }
+                                    vlcMediaPlayer.time = targetMs
+                                } else {
+                                    vlcMediaPlayer.time = targetMs
                                 }
                             } catch (e: Exception) {
                                 android.util.Log.e("CustomVideoPlayer", "Erro ao deslizar posição: ${e.message}", e)

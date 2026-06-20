@@ -6,7 +6,7 @@
 
 ## 🚀 Sobre o Projeto
 
-O **Astra NovaCore Player** foi desenvolvido utilizando as técnicas mais modernas de engenharia no ecossistema Android. Unindo a beleza do **Jetpack Compose (Material Design 3)** à robustez de uma **Biblioteca Dupla de Decodificação** (VLC & ExoPlayer), o Astra é capaz de reproduzir desde simples formatos de celular até complexos fluxos UHD (4K) em HEVC/H.265 sem nenhuma trava.
+O **Astra NovaCore Player** foi desenvolvido utilizando as técnicas mais modernas de engenharia no ecossistema Android. Unindo a beleza do **Jetpack Compose (Material Design 3)** à robustez de uma **Arquitetura VLC & FFmpeg**, o Astra é capaz de reproduzir desde simples formatos de celular até complexos fluxos UHD (4K) em HEVC/H.265 sem nenhuma trava.
 
 ---
 
@@ -17,16 +17,16 @@ O **Astra NovaCore Player** foi desenvolvido utilizando as técnicas mais modern
 ┌────────────────────────────────────────────────────────┐
 │                    Jetpack Compose UI                  │
 ├───────────────────────────┬────────────────────────────┤
-│   ⚡ MobileVLCKit Engine   │    ⚙️ ExoPlayer Engine      │
-│  (SW / Formatos Pesados)  │   (HW / Fluxos Padrão)     │
+│   ⚡ MobileVLCKit Engine   │   ⚙️ FFmpeg Core Backend    │
+│   (Codecs & Containers)   │ (Software Decoding Threads)│
 └───────────────────────────┴────────────────────────────┘
 ```
 
-### 1. 🛠️ Biblioteca Dupla de Decodificação (Dual Engine)
-Escolha dinâmica da engine ideal para cada cenário de mídia:
-- **MobileVLCKit**: Decodificador de alta performance focado em leitura via software (SW), ideal para arquivos multimídia complexos, codecs clássicos raros e taxas de bits pesadíssimas.
+### 1. 🛠️ Motores MobileVLCKit & FFmpeg (Dual Mode)
+O reprodutor utiliza as robustas bibliotecas **MobileVLCKit** e o motor decodificador **FFmpeg** integrado:
+- **MobileVLCKit**: Fornece a infraestrutura de alto nível para renderização acelerada por hardware (HW), controle de fluxo, legendas estendidas e áudio de alta fidelidade.
   - *Identidade visual descrita:* `"MobileVLCKit : Uma Bliblioteca de Alta Performance."`
-- **ExoPlayer (Media3)**: Motor oficial desenvolvido pelo Google focado em aceleração extrema por hardware (HW), fornecendo alta economia energética para fluxos HLS/DASH e streams em tempo real.
+- **FFmpeg Engine Backend**: Atua como o núcleo de decodificação de software (SW) multi-threaded, trazendo suporte completo a praticamente todos os codecs e contêineres de vídeo e áudio existentes no planeta.
   - *Identidade visual descrita:* `"FFmpeg : Essa Bliblioteca Focada em compatibilidade melhor."`
 
 ### 2. 🔊 Amplificador de Áudio Booster (Até 300%)
@@ -66,7 +66,7 @@ Controle cirúrgico do hardware do seu dispositivo:
 - **Jetpack Compose** com Material Design 3.
 - **Room Database** para persistência física rápida.
 - **Coroutines & Flow** para gerenciar threads com segurança.
-- **Media3 (ExoPlayer)** & **MobileVLCKit** para reprodução multimídia profissional.
+- **MobileVLCKit & FFmpeg Core** para reprodução multimídia profissional.
 
 ---
 *Astra NovaCore Player: Redefinindo o significado de reprodução e estilo no Android.* 🚀🌌
