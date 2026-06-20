@@ -66,7 +66,7 @@ fun DashboardScreen(
     // UI state
     var showAddDialog by remember { mutableStateOf(false) }
     var showUrlDialog by remember { mutableStateOf(false) }
-    var showThemeDialog by remember { mutableStateOf(false) }
+    var showThemesDialog by remember { mutableStateOf(false) }
     var activeSearchMode by remember { mutableStateOf(false) }
 
     // Fade-in animation for title logo icon
@@ -229,7 +229,7 @@ fun DashboardScreen(
                                         text = { Text("Estilo & Temas", color = Color.White, fontSize = 13.sp) },
                                         leadingIcon = { Icon(Icons.Default.Palette, contentDescription = null, tint = activeAccentColor, modifier = Modifier.size(18.dp)) },
                                         onClick = {
-                                            showThemeDialog = true
+                                            showThemesDialog = true
                                             showMoreMenu = false
                                         }
                                     )
@@ -281,7 +281,12 @@ fun DashboardScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     val tabLabels = listOf("Vídeos", "Pastas", "Auth Cloud", "Memória")
-                    val tabIcons = listOf(Icons.Default.Movie, Icons.Default.Folder, Icons.Default.CloudQueue, Icons.Default.Memory)
+                    val tabIcons = listOf(
+                        Icons.Default.Movie,
+                        Icons.Default.Folder,
+                        Icons.Default.CloudQueue,
+                        Icons.Default.Memory
+                    )
                     
                     tabLabels.forEachIndexed { index, label ->
                         val isSelected = selectedTab == index
@@ -703,8 +708,13 @@ fun DashboardScreen(
                         }
                     }
                     2 -> {
-                        // AUTH CLOUD TAB (GitHub Public Repository Video Scanner)
+                        // AUTH CLOUD TAB (GitHub Public Repository Video & Playlist Scanner - Upgraded)
                         var repoUrl by remember { mutableStateOf("") }
+                        val githubTokenState by viewModel.githubToken.collectAsState()
+                        val syncLogState by viewModel.syncLog.collectAsState()
+                        val scannedCountState by viewModel.scannedVideosCount.collectAsState()
+                        val bookmarkHistory by viewModel.syncedReposList.collectAsState()
+                        
                         var statusMessage by remember { mutableStateOf<String?>(null) }
                         var isError by remember { mutableStateOf(false) }
                         
@@ -716,143 +726,381 @@ fun DashboardScreen(
                             horizontalAlignment = Alignment.CenterHorizontally,
                             verticalArrangement = Arrangement.Top
                         ) {
-                            Card(
-                                colors = CardDefaults.cardColors(containerColor = DarkSurface),
-                                shape = RoundedCornerShape(16.dp),
+                            // Header banner card with nice gradient and cloud emblem
+                            Box(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .border(1.dp, activeAccentColor.copy(alpha = 0.2f), RoundedCornerShape(16.dp))
-                                    .padding(16.dp)
+                                    .clip(RoundedCornerShape(24.dp))
+                                    .background(
+                                        androidx.compose.ui.graphics.Brush.verticalGradient(
+                                            colors = listOf(
+                                                activeAccentColor.copy(alpha = 0.15f),
+                                                Color.Transparent
+                                            )
+                                        )
+                                    )
+                                    .border(1.dp, activeAccentColor.copy(alpha = 0.25f), RoundedCornerShape(24.dp))
+                                    .padding(20.dp)
                             ) {
                                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                    Icon(
-                                        imageVector = Icons.Default.CloudSync,
-                                        contentDescription = "Auth Cloud Sync",
-                                        tint = activeAccentColor,
-                                        modifier = Modifier.size(52.dp)
-                                    )
-                                    Spacer(modifier = Modifier.height(10.dp))
-                                    Text(
-                                        text = "Importador Nuvem Github",
-                                        color = Color.White,
-                                        fontSize = 17.sp,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                    Spacer(modifier = Modifier.height(8.dp))
-                                    Text(
-                                        text = "Conecte mídias diretamente de um repositório público do GitHub. O player irá ler a estrutura de subpastas de forma automática e importar as mídias compatíveis.",
-                                        color = LightGray,
-                                        fontSize = 12.sp,
-                                        textAlign = TextAlign.Center,
-                                        lineHeight = 18.sp
-                                    )
-                                }
-                            }
-                            
-                            Spacer(modifier = Modifier.height(20.dp))
-                            
-                            OutlinedTextField(
-                                value = repoUrl,
-                                onValueChange = { repoUrl = it },
-                                label = { Text("Usuário/Projeto ou Link do GitHub", color = LightGray, fontSize = 12.sp) },
-                                placeholder = { Text("ex: google/iosched", color = MediumGray, fontSize = 12.sp) },
-                                colors = OutlinedTextFieldDefaults.colors(
-                                    focusedBorderColor = activeAccentColor,
-                                    unfocusedBorderColor = BorderGray,
-                                    focusedLabelColor = activeAccentColor,
-                                    unfocusedLabelColor = LightGray,
-                                    focusedTextColor = Color.White,
-                                    unfocusedTextColor = Color.White
-                                ),
-                                modifier = Modifier.fillMaxWidth(),
-                                shape = RoundedCornerShape(12.dp),
-                                singleLine = true
-                            )
-                            
-                            Spacer(modifier = Modifier.height(16.dp))
-                            
-                            Button(
-                                onClick = {
-                                    if (repoUrl.isBlank()) {
-                                        statusMessage = "Erro: Digite a URL ou identificador do repositório."
-                                        isError = true
-                                        return@Button
+                                    // Glowing emblem box
+                                    Box(
+                                        modifier = Modifier
+                                            .size(64.dp)
+                                            .clip(CircleShape)
+                                            .background(activeAccentColor.copy(alpha = 0.12f))
+                                            .border(1.dp, activeAccentColor.copy(alpha = 0.4f), CircleShape),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.CloudQueue,
+                                            contentDescription = "Nuvem",
+                                            tint = activeAccentColor,
+                                            modifier = Modifier.size(34.dp)
+                                        )
                                     }
-                                    statusMessage = "Conectando ao GitHub & analisando arquivos de mídias..."
-                                    isError = false
-                                    viewModel.syncGithubRepo(
-                                        repoUrl = repoUrl,
-                                        onSuccess = { count ->
-                                            statusMessage = "Sincronização concluída! $count novos vídeos importados da nuvem."
-                                            isError = false
-                                        },
-                                        onError = { error ->
-                                            statusMessage = "Falha ao sincronizar: $error. Verifique se o repositório é público."
-                                            isError = true
-                                        }
-                                    )
-                                },
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = if (isLedMode) Color.Transparent else activeAccentColor,
-                                    contentColor = if (isLedMode) activeAccentColor else Black
-                                ),
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(48.dp)
-                                    .then(
-                                        if (isLedMode) {
-                                            Modifier
-                                                .border(1.5.dp, activeAccentColor, RoundedCornerShape(10.dp))
-                                                .ledGlow(
-                                                    color = activeAccentColor,
-                                                    borderRadius = 10.dp,
-                                                    glowRadius = 10.dp,
-                                                    enabled = true
-                                                )
-                                        } else Modifier
-                                    ),
-                                shape = RoundedCornerShape(10.dp)
-                             ) {
-                                Icon(
-                                    imageVector = Icons.Default.Sync, 
-                                    contentDescription = null, 
-                                    tint = if (isLedMode) activeAccentColor else Black, 
-                                    modifier = Modifier.size(18.dp)
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text(
-                                    text = "Sincronizar Repositório", 
-                                    fontWeight = FontWeight.Bold, 
-                                    fontSize = 14.sp,
-                                    color = if (isLedMode) activeAccentColor else Black
-                                )
-                            }
-                            
-                            if (statusMessage != null) {
-                                Spacer(modifier = Modifier.height(16.dp))
-                                Card(
-                                    colors = CardDefaults.cardColors(
-                                        containerColor = if (isError) Color(0xFF321417) else Color(0xFF14321B)
-                                    ),
-                                    shape = RoundedCornerShape(8.dp),
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .border(0.5.dp, if (isError) Color.Red.copy(0.6f) else Color.Green.copy(0.6f), RoundedCornerShape(8.dp))
-                                ) {
+                                    
+                                    Spacer(modifier = Modifier.height(14.dp))
+                                    
                                     Text(
-                                        text = statusMessage!!,
-                                        color = if (isError) Color(0xFFFFDAD6) else Color(0xFFE3FFDB),
-                                        modifier = Modifier.padding(12.dp),
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.Medium,
+                                        text = "AUTH CLOUD MEDIA SYNC",
+                                        color = activeAccentColor,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Black,
+                                        letterSpacing = 1.5.sp
+                                    )
+                                    
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    
+                                    Text(
+                                        text = "Indexador Cósmico de Repositórios",
+                                        color = Color.White,
+                                        fontSize = 16.sp,
+                                        fontWeight = FontWeight.Bold,
                                         textAlign = TextAlign.Center
                                     )
+                                    
+                                    Spacer(modifier = Modifier.height(6.dp))
+                                    
+                                    Text(
+                                        text = "Sincronize mídias de repositórios públicos do GitHub ou analise playlists M3U hospedadas de canais remotos diretamente no seu player.",
+                                        color = LightGray,
+                                        fontSize = 11.sp,
+                                        textAlign = TextAlign.Center,
+                                        lineHeight = 16.sp
+                                    )
                                 }
                             }
+                            
+                            Spacer(modifier = Modifier.height(18.dp))
+                            
+                            // Input fields block
+                            Card(
+                                colors = CardDefaults.cardColors(containerColor = DarkSurface),
+                                shape = RoundedCornerShape(18.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .border(1.dp, Color.White.copy(alpha = 0.05f), RoundedCornerShape(18.dp))
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(16.dp),
+                                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                                ) {
+                                    // Repo Address Input
+                                    Column {
+                                        Text(
+                                            text = "Endereço do Repositório GitHub",
+                                            color = Color.White,
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            modifier = Modifier.padding(bottom = 6.dp)
+                                        )
+                                        TextField(
+                                            value = repoUrl,
+                                            onValueChange = { repoUrl = it },
+                                            placeholder = { Text("usuario/projeto ou link completo", fontSize = 13.sp, color = MediumGray) },
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .height(54.dp),
+                                            shape = RoundedCornerShape(12.dp),
+                                            leadingIcon = {
+                                                Icon(
+                                                    imageVector = Icons.Default.Code,
+                                                    contentDescription = null,
+                                                    tint = activeAccentColor
+                                                )
+                                            },
+                                            colors = TextFieldDefaults.colors(
+                                                focusedTextColor = Color.White,
+                                                unfocusedTextColor = Color.White,
+                                                focusedContainerColor = Color.Black.copy(alpha = 0.4f),
+                                                unfocusedContainerColor = Color.Black.copy(alpha = 0.2f),
+                                                focusedIndicatorColor = activeAccentColor,
+                                                unfocusedIndicatorColor = Color.Transparent
+                                            ),
+                                            singleLine = true
+                                        )
+                                    }
+                                    
+                                    // Optional GitHub Token Input
+                                    Column {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Text(
+                                                text = "Token de Acesso Pessoal (Opcional)",
+                                                color = Color.White,
+                                                fontSize = 12.sp,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                            Text(
+                                                text = if (githubTokenState.isBlank()) "Sem Token" else "Configurado",
+                                                color = if (githubTokenState.isBlank()) MediumGray else activeAccentColor,
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.SemiBold
+                                            )
+                                        }
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        TextField(
+                                            value = githubTokenState,
+                                            onValueChange = { viewModel.setGithubToken(it) },
+                                            placeholder = { Text("ghp_... (evita limites de IP na API)", fontSize = 13.sp, color = MediumGray) },
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .height(54.dp),
+                                            shape = RoundedCornerShape(12.dp),
+                                            leadingIcon = {
+                                                Icon(
+                                                    imageVector = Icons.Default.Key,
+                                                    contentDescription = null,
+                                                    tint = if (githubTokenState.isBlank()) MediumGray else activeAccentColor
+                                                )
+                                            },
+                                            colors = TextFieldDefaults.colors(
+                                                focusedTextColor = Color.White,
+                                                unfocusedTextColor = Color.White,
+                                                focusedContainerColor = Color.Black.copy(alpha = 0.4f),
+                                                unfocusedContainerColor = Color.Black.copy(alpha = 0.2f),
+                                                focusedIndicatorColor = activeAccentColor,
+                                                unfocusedIndicatorColor = Color.Transparent
+                                            ),
+                                            singleLine = true
+                                        )
+                                    }
+                                    
+                                    // Action Sync Button
+                                    Button(
+                                        onClick = {
+                                            if (repoUrl.isBlank()) {
+                                                statusMessage = "Digite o repositório ou selecione um abaixo para progredir."
+                                                isError = true
+                                                return@Button
+                                            }
+                                            statusMessage = null
+                                            viewModel.syncGithubRepo(
+                                                repoUrl = repoUrl,
+                                                onSuccess = { count ->
+                                                    statusMessage = "Sincronização completa! $count mídias indexadas e integradas ao Astra."
+                                                    isError = false
+                                                },
+                                                onError = { err ->
+                                                    statusMessage = "Sincronização falhou: $err"
+                                                    isError = true
+                                                }
+                                            )
+                                        },
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(48.dp),
+                                        shape = RoundedCornerShape(12.dp),
+                                        colors = ButtonDefaults.buttonColors(
+                                            containerColor = activeAccentColor,
+                                            contentColor = Black
+                                        )
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.CloudDownload,
+                                            contentDescription = null,
+                                            tint = Black
+                                        )
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text(
+                                            text = "Iniciar Sincronização Cósmica",
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 13.sp
+                                        )
+                                    }
+                                }
+                            }
+                            
+                            // Realtime syncing terminal logs
+                            if (isImporting) {
+                                Spacer(modifier = Modifier.height(16.dp))
+                                Card(
+                                    colors = CardDefaults.cardColors(containerColor = Color.Black.copy(alpha = 0.75f)),
+                                    shape = RoundedCornerShape(14.dp),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .border(1.dp, activeAccentColor.copy(alpha = 0.35f), RoundedCornerShape(14.dp))
+                                ) {
+                                    Column(modifier = Modifier.padding(14.dp)) {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                CircularProgressIndicator(
+                                                    color = activeAccentColor,
+                                                    strokeWidth = 2.dp,
+                                                    modifier = Modifier.size(16.dp)
+                                                )
+                                                Spacer(modifier = Modifier.width(10.dp))
+                                                Text(
+                                                    text = "CONEXÃO ATIVA",
+                                                    color = activeAccentColor,
+                                                    fontSize = 11.sp,
+                                                    fontWeight = FontWeight.Black,
+                                                    letterSpacing = 1.sp
+                                                )
+                                            }
+                                            Text(
+                                                text = "Mídias: $scannedCountState",
+                                                color = Color.White,
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                        }
+                                        Spacer(modifier = Modifier.height(10.dp))
+                                        Text(
+                                            text = syncLogState,
+                                            color = Color.White.copy(alpha = 0.85f),
+                                            fontSize = 11.sp,
+                                            fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                                            lineHeight = 15.sp,
+                                            maxLines = 3,
+                                            modifier = Modifier.fillMaxWidth()
+                                        )
+                                    }
+                                }
+                            }
+                            
+                            // Status feedback box
+                            if (statusMessage != null && !isImporting) {
+                                Spacer(modifier = Modifier.height(14.dp))
+                                Card(
+                                    colors = CardDefaults.cardColors(
+                                        containerColor = if (isError) Color(0x20FF1744) else Color(0x2000E676)
+                                    ),
+                                    shape = RoundedCornerShape(14.dp),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .border(
+                                            width = 1.dp,
+                                            color = if (isError) Color.Red.copy(alpha = 0.4f) else Color.Green.copy(alpha = 0.4f),
+                                            shape = RoundedCornerShape(14.dp)
+                                        )
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(14.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = if (isError) Icons.Default.Error else Icons.Default.CheckCircle,
+                                            contentDescription = null,
+                                            tint = if (isError) Color.Red else Color.Green,
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                        Text(
+                                            text = statusMessage!!,
+                                            color = if (isError) Color(0xFFFFDAD6) else Color(0xFFE3FFDB),
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.Medium,
+                                            modifier = Modifier.weight(1f)
+                                        )
+                                    }
+                                }
+                            }
+                            
+                            // Quick Connection Bookmarks history Section
+                            if (bookmarkHistory.isNotEmpty()) {
+                                Spacer(modifier = Modifier.height(24.dp))
+                                Text(
+                                    text = "CONEXÕES RECENTES (SALVAS)",
+                                    color = activeAccentColor,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Black,
+                                    modifier = Modifier.align(Alignment.Start),
+                                    letterSpacing = 1.3.sp
+                                )
+                                Spacer(modifier = Modifier.height(10.dp))
+                                
+                                bookmarkHistory.forEach { bookmarkedRepo ->
+                                    Card(
+                                        colors = CardDefaults.cardColors(containerColor = DarkSurface),
+                                        shape = RoundedCornerShape(14.dp),
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(vertical = 4.dp)
+                                            .clickable { repoUrl = bookmarkedRepo }
+                                            .border(0.5.dp, Color.White.copy(alpha = 0.05f), RoundedCornerShape(14.dp))
+                                    ) {
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(12.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.SpaceBetween
+                                        ) {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                                modifier = Modifier.weight(1f)
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.History,
+                                                    contentDescription = null,
+                                                    tint = activeAccentColor,
+                                                    modifier = Modifier.size(18.dp)
+                                                )
+                                                Column {
+                                                    Text(
+                                                        text = bookmarkedRepo,
+                                                        color = Color.White,
+                                                        fontSize = 13.sp,
+                                                        fontWeight = FontWeight.Bold
+                                                    )
+                                                    Text(
+                                                        text = "Toque para preencher",
+                                                        color = MediumGray,
+                                                        fontSize = 11.sp
+                                                    )
+                                                }
+                                            }
+                                            IconButton(
+                                                onClick = { viewModel.removeSyncedRepoFromHistory(bookmarkedRepo) }
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.Delete,
+                                                    contentDescription = "Deletar",
+                                                    tint = Color.Red.copy(alpha = 0.7f),
+                                                    modifier = Modifier.size(18.dp)
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            
+                            // End of Bookmark section
+                            Spacer(modifier = Modifier.height(40.dp))
                         }
                     }
                     3 -> {
-                        // MEMÓRIA TAB (Memory Optimization)
+                        // MEMÓRIA TAB (Memory Optimization - Shifted to index 3)
                         Column(
                             modifier = Modifier
                                 .fillMaxSize()
@@ -1481,9 +1729,13 @@ fun DashboardScreen(
         )
     }
 
-    if (showThemeDialog) {
+    if (showThemesDialog) {
+        val currentThemeState by viewModel.currentTheme.collectAsState()
+        val glowRadiusValue by viewModel.ledGlowRadius.collectAsState()
+        val isLedPulseEnabled by viewModel.ledPulseEnabled.collectAsState()
+
         AlertDialog(
-            onDismissRequest = { showThemeDialog = false },
+            onDismissRequest = { showThemesDialog = false },
             title = {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
@@ -1492,38 +1744,120 @@ fun DashboardScreen(
                     Icon(
                         imageVector = Icons.Default.Palette,
                         contentDescription = null,
-                        tint = activeAccentColor
+                        tint = activeAccentColor,
+                        modifier = Modifier.size(24.dp)
                     )
                     Text(
-                        text = "Estilo & Temas LED",
+                        text = "Estilo & Temas Aura",
                         color = Color.White,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 18.sp
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold
                     )
                 }
             },
             text = {
                 Column(
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 420.dp)
+                        .verticalScroll(rememberScrollState()),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Top
                 ) {
+                    // Immersive high-fidelity Preview Card demonstrating the active LED Neon Theme
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = DarkSurface),
+                        shape = RoundedCornerShape(16.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 16.dp)
+                            .rememberLedGlow(
+                                color = activeAccentColor,
+                                borderRadius = 16.dp,
+                                baseGlowRadius = glowRadiusValue.dp,
+                                enabled = isLedMode,
+                                pulseEnabled = isLedPulseEnabled
+                            )
+                            .border(1.5.dp, activeAccentColor.copy(alpha = 0.5f), RoundedCornerShape(16.dp))
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            // Simulated Glowing LED bulb element
+                            Box(
+                                modifier = Modifier
+                                    .size(44.dp)
+                                    .clip(CircleShape)
+                                    .background(activeAccentColor.copy(alpha = 0.15f))
+                                    .rememberLedGlow(
+                                        color = activeAccentColor,
+                                        borderRadius = 22.dp,
+                                        baseGlowRadius = (glowRadiusValue + 4).dp,
+                                        enabled = isLedMode,
+                                        pulseEnabled = isLedPulseEnabled
+                                    )
+                                    .border(1.5.dp, activeAccentColor, CircleShape),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Palette,
+                                    contentDescription = null,
+                                    tint = activeAccentColor,
+                                    modifier = Modifier.size(22.dp)
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.height(10.dp))
+
+                            Text(
+                                text = "AURA GLOW DIGITAL",
+                                color = activeAccentColor,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Black,
+                                letterSpacing = 2.sp
+                            )
+
+                            Spacer(modifier = Modifier.height(4.dp))
+
+                            Text(
+                                text = when (currentThemeState) {
+                                    "gold" -> "Luxo Aura Gold"
+                                    "led_warm" -> "LED Sunset Neon"
+                                    "led_cold" -> "LED Cyber Frio"
+                                    "led_multicolor" -> "Multi-Luzes RGB"
+                                    else -> "Original"
+                                },
+                                color = Color.White,
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+
+                    // Heading section
                     Text(
-                        text = "Escolha o estilo de efeito LED para o seu Astra NovaCore Player:",
-                        color = Color.LightGray,
-                        fontSize = 12.sp,
-                        modifier = Modifier.padding(bottom = 4.dp)
+                        text = "SELECIONE SEU ESTILO",
+                        color = activeAccentColor,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Black,
+                        modifier = Modifier.align(Alignment.Start),
+                        letterSpacing = 1.3.sp
                     )
 
-                    val themes = listOf(
-                        Triple("gold", "Luxo Aura Gold", "Aura dourada clássica e sofisticada"),
-                        Triple("led_warm", "LED Neon Quente", "Cores quentes pulsantes de pôr do sol"),
-                        Triple("led_cold", "LED Neon Frio", "Cores frias de neon futurista e cibernético"),
-                        Triple("led_multicolor", "LED Arco-Íris Multicolor", "Espectro RGB dinâmico giratório completo")
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    // Grid or list of options
+                    val themesList = listOf(
+                        Triple("gold", "Luxo Aura Gold", "Dourado reluzente metálico clássico real"),
+                        Triple("led_warm", "LED Neon Quente", "Fusão de rosa e laranja neon base sunset"),
+                        Triple("led_cold", "LED Neon Frio", "Eletrônica azul-ciano cibernética futurista"),
+                        Triple("led_multicolor", "LED Arco-Íris Multicolor", "Espectro RGB ondulatório dinâmico")
                     )
 
-                    val currentThemeState by viewModel.currentTheme.collectAsState()
-
-                    themes.forEach { (themeKey, themeTitle, themeDesc) ->
+                    themesList.forEach { (themeKey, themeTitle, themeDesc) ->
                         val isSelected = currentThemeState == themeKey
                         val borderGlowColor = when (themeKey) {
                             "gold" -> GoldMetallic
@@ -1535,37 +1869,30 @@ fun DashboardScreen(
 
                         Card(
                             colors = CardDefaults.cardColors(
-                                containerColor = if (isSelected) DarkSurface else Color.Transparent
+                                containerColor = if (isSelected) Color.Black.copy(alpha = 0.5f) else DarkSurface
                             ),
                             shape = RoundedCornerShape(12.dp),
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .ledGlow(
-                                    color = borderGlowColor,
-                                    borderRadius = 12.dp,
-                                    glowRadius = 10.dp,
-                                    enabled = isSelected && themeKey.startsWith("led_")
-                                )
-                                .clickable {
-                                    viewModel.setCurrentTheme(themeKey)
-                                }
+                                .padding(vertical = 4.dp)
+                                .clickable { viewModel.setCurrentTheme(themeKey) }
                                 .border(
                                     width = if (isSelected) 1.5.dp else 0.5.dp,
-                                    color = if (isSelected) borderGlowColor else BorderGray,
+                                    color = if (isSelected) borderGlowColor else Color.White.copy(alpha = 0.08f),
                                     shape = RoundedCornerShape(12.dp)
                                 )
                         ) {
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(vertical = 12.dp, horizontal = 14.dp),
+                                    .padding(10.dp),
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
                             ) {
-                                // Dynamic circle indicator matching theme
+                                // Dynamic beautiful color preview circle
                                 Box(
                                     modifier = Modifier
-                                        .size(24.dp)
+                                        .size(30.dp)
                                         .clip(CircleShape)
                                         .background(
                                             if (themeKey == "led_multicolor") {
@@ -1578,7 +1905,7 @@ fun DashboardScreen(
                                                 )
                                             }
                                         )
-                                        .border(1.dp, Color.White.copy(alpha = 0.6f), CircleShape),
+                                        .border(0.5.dp, Color.White.copy(alpha = 0.4f), CircleShape),
                                     contentAlignment = Alignment.Center
                                 ) {
                                     if (isSelected) {
@@ -1595,15 +1922,119 @@ fun DashboardScreen(
                                     Text(
                                         text = themeTitle,
                                         color = if (isSelected) borderGlowColor else Color.White,
-                                        fontSize = 14.sp,
+                                        fontSize = 13.sp,
                                         fontWeight = FontWeight.Bold
                                     )
                                     Text(
                                         text = themeDesc,
-                                        color = MediumGray,
-                                        fontSize = 11.sp
+                                        color = LightGray,
+                                        fontSize = 10.sp,
+                                        lineHeight = 14.sp
                                     )
                                 }
+
+                                RadioButton(
+                                    selected = isSelected,
+                                    onClick = { viewModel.setCurrentTheme(themeKey) },
+                                    colors = RadioButtonDefaults.colors(
+                                        selectedColor = borderGlowColor,
+                                        unselectedColor = Color.White.copy(alpha = 0.2f)
+                                    )
+                                )
+                            }
+                        }
+                    }
+
+                    // Configurações do LED Neon
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    Text(
+                        text = "EFEITOS E CUSTOMIZAÇÃO",
+                        color = activeAccentColor,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Black,
+                        modifier = Modifier.align(Alignment.Start),
+                        letterSpacing = 1.3.sp
+                    )
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = DarkSurface),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .border(1.dp, Color.White.copy(alpha = 0.05f), RoundedCornerShape(12.dp))
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp)) {
+                            // Pulse Switch
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column {
+                                    Text(
+                                        text = "Pulse Cósmico",
+                                        color = Color.White,
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Text(
+                                        text = "Efeito de respiração das auras",
+                                        color = LightGray,
+                                        fontSize = 10.sp
+                                    )
+                                }
+                                Switch(
+                                    checked = isLedPulseEnabled,
+                                    onCheckedChange = { viewModel.setLedPulseEnabled(it) },
+                                    colors = SwitchDefaults.colors(
+                                        checkedThumbColor = activeAccentColor,
+                                        checkedTrackColor = activeAccentColor.copy(alpha = 0.35f),
+                                        uncheckedThumbColor = Color.White,
+                                        uncheckedTrackColor = BorderGray
+                                    )
+                                )
+                            }
+
+                            Divider(color = BorderGray, modifier = Modifier.padding(vertical = 10.dp))
+
+                            // Brightness/Glow radius slider
+                            Column {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = "Aura: ${glowRadiusValue}dp",
+                                        color = Color.White,
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Text(
+                                        text = when {
+                                            glowRadiusValue <= 10 -> "Suave"
+                                            glowRadiusValue <= 18 -> "Vibrante"
+                                            else -> "Astra Turbo"
+                                        },
+                                        color = activeAccentColor,
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Black
+                                    )
+                                }
+                                Slider(
+                                    value = glowRadiusValue.toFloat(),
+                                    onValueChange = { viewModel.setLedGlowRadius(it.toInt()) },
+                                    valueRange = 5f..30f,
+                                    colors = SliderDefaults.colors(
+                                        thumbColor = activeAccentColor,
+                                        activeTrackColor = activeAccentColor,
+                                        inactiveTrackColor = BorderGray
+                                    ),
+                                    modifier = Modifier.fillMaxWidth()
+                                )
                             }
                         }
                     }
@@ -1611,20 +2042,20 @@ fun DashboardScreen(
             },
             confirmButton = {
                 Button(
-                    onClick = { showThemeDialog = false },
+                    onClick = { showThemesDialog = false },
                     colors = ButtonDefaults.buttonColors(
                         containerColor = if (isLedMode) Color.Transparent else activeAccentColor,
                         contentColor = if (isLedMode) activeAccentColor else Black
                     ),
-                    shape = RoundedCornerShape(12.dp),
+                    shape = RoundedCornerShape(10.dp),
                     modifier = Modifier.then(
                         if (isLedMode) {
                             Modifier
-                                .border(1.5.dp, activeAccentColor, RoundedCornerShape(12.dp))
+                                .border(1.5.dp, activeAccentColor, RoundedCornerShape(10.dp))
                                 .ledGlow(
                                     color = activeAccentColor,
-                                    borderRadius = 12.dp,
-                                    glowRadius = 10.dp,
+                                    borderRadius = 10.dp,
+                                    glowRadius = 8.dp,
                                     enabled = true
                                 )
                         } else Modifier

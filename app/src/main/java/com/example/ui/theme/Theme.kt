@@ -209,3 +209,53 @@ fun Modifier.ledGlow(
     }
 }
 
+@Composable
+fun Modifier.rememberLedGlow(
+    color: androidx.compose.ui.graphics.Color,
+    borderRadius: Dp = 12.dp,
+    baseGlowRadius: Dp = 10.dp,
+    enabled: Boolean = true,
+    pulseEnabled: Boolean = true
+): Modifier {
+    if (!enabled) return this
+    val infiniteTransition = androidx.compose.animation.core.rememberInfiniteTransition(label = "GlowPulse")
+    val multiplier by if (pulseEnabled) {
+        infiniteTransition.animateFloat(
+            initialValue = 0.5f,
+            targetValue = 1.3f,
+            animationSpec = androidx.compose.animation.core.infiniteRepeatable(
+                animation = androidx.compose.animation.core.tween(1500, easing = androidx.compose.animation.core.LinearEasing),
+                repeatMode = androidx.compose.animation.core.RepeatMode.Reverse
+            ),
+            label = "GlowMultiplier"
+        )
+    } else {
+        androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(1.0f) }
+    }
+    
+    val currentRadiusSpec = baseGlowRadius * multiplier
+    
+    return this.drawBehind {
+        drawIntoCanvas { canvas ->
+            val paint = Paint().asFrameworkPaint().apply {
+                this.color = android.graphics.Color.TRANSPARENT
+                this.setShadowLayer(
+                    currentRadiusSpec.toPx(),
+                    0f,
+                    0f,
+                    color.toArgb()
+                )
+            }
+            canvas.nativeCanvas.drawRoundRect(
+                0f,
+                0f,
+                size.width,
+                size.height,
+                borderRadius.toPx(),
+                borderRadius.toPx(),
+                paint
+            )
+        }
+    }
+}
+

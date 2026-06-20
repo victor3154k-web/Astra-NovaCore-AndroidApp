@@ -16,6 +16,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Loop
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.KeyboardArrowDown
@@ -67,6 +68,16 @@ fun SettingsScreen(
     var cpuExpanded by rememberSaveable { mutableStateOf(false) }
     var dualLibExpanded by rememberSaveable { mutableStateOf(false) }
     val dualLibrary by viewModel.dualLibrary.collectAsState()
+
+    val expandThemesInSettings by viewModel.expandThemesInSettings.collectAsState()
+    var themesExpanded by remember { mutableStateOf(false) }
+
+    LaunchedEffect(expandThemesInSettings) {
+        if (expandThemesInSettings) {
+            themesExpanded = true
+            viewModel.setExpandThemesInSettings(false)
+        }
+    }
 
     val launcher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()

@@ -155,6 +155,14 @@ class VideoViewModel(application: Application) : AndroidViewModel(application) {
         _showSettingsScreen.value = show
     }
 
+    // Flag to auto-expand Themes Drawer in Settings Screen
+    private val _expandThemesInSettings = MutableStateFlow(false)
+    val expandThemesInSettings: StateFlow<Boolean> = _expandThemesInSettings.asStateFlow()
+
+    fun setExpandThemesInSettings(expand: Boolean) {
+        _expandThemesInSettings.value = expand
+    }
+
     // Interactive Dual Subtitles
     private val _subtitles1 = MutableStateFlow<List<SubtitleEntry>>(emptyList())
     val subtitles1: StateFlow<List<SubtitleEntry>> = _subtitles1.asStateFlow()
@@ -185,11 +193,74 @@ class VideoViewModel(application: Application) : AndroidViewModel(application) {
         prefs.edit().putString("current_theme", theme).apply()
     }
 
+    // LED Customization parameters
+    private val _ledGlowRadius = MutableStateFlow(prefs.getInt("led_glow_radius", 14))
+    val ledGlowRadius: StateFlow<Int> = _ledGlowRadius.asStateFlow()
+
+    fun setLedGlowRadius(radius: Int) {
+        val coerced = radius.coerceIn(5, 30)
+        _ledGlowRadius.value = coerced
+        prefs.edit().putInt("led_glow_radius", coerced).apply()
+    }
+
+    private val _ledPulseEnabled = MutableStateFlow(prefs.getBoolean("led_pulse_enabled", true))
+    val ledPulseEnabled: StateFlow<Boolean> = _ledPulseEnabled.asStateFlow()
+
+    fun setLedPulseEnabled(enabled: Boolean) {
+        _ledPulseEnabled.value = enabled
+        prefs.edit().putBoolean("led_pulse_enabled", enabled).apply()
+    }
+
     // Import status tracking
     private val _isImporting = MutableStateFlow(false)
     val isImporting: StateFlow<Boolean> = _isImporting.asStateFlow()
 
     private val httpClient = OkHttpClient.Builder().build()
+
+    // GitHub Personal Access Token to prevent Rate Limit (Auth Cloud)
+    private val _githubToken = MutableStateFlow(prefs.getString("github_token", "") ?: "")
+    val githubToken: StateFlow<String> = _githubToken.asStateFlow()
+
+    fun setGithubToken(token: String) {
+        _githubToken.value = token.trim()
+        prefs.edit().putString("github_token", token.trim()).apply()
+    }
+
+    // Live Sync progress status & files feed logs
+    private val _syncLog = MutableStateFlow("Sincronização inativa.")
+    val syncLog: StateFlow<String> = _syncLog.asStateFlow()
+
+    private val _scannedVideosCount = MutableStateFlow(0)
+    val scannedVideosCount: StateFlow<Int> = _scannedVideosCount.asStateFlow()
+
+    // Bookmark / Synced History of GitHub Public Repo URLs
+    private val _syncedReposList = MutableStateFlow<List<String>>(
+        prefs.getString("synced_github_repos", "")
+            ?.split(",")
+            ?.filter { it.isNotBlank() }
+            ?: emptyList()
+    )
+    val syncedReposList: StateFlow<List<String>> = _syncedReposList.asStateFlow()
+
+    fun addSyncedRepoToHistory(repo: String) {
+        val currentList = _syncedReposList.value.toMutableList()
+        val cleaned = repo.trim().removeSuffix("/")
+        if (cleaned.isNotBlank()) {
+            if (currentList.contains(cleaned)) {
+                currentList.remove(cleaned)
+            }
+            currentList.add(0, cleaned)
+            val clamped = currentList.take(5)
+            _syncedReposList.value = clamped
+            prefs.edit().putString("synced_github_repos", clamped.joinToString(",")).apply()
+        }
+    }
+
+    fun removeSyncedRepoFromHistory(repo: String) {
+        val currentList = _syncedReposList.value.filter { it != repo.trim().removeSuffix("/") }
+        _syncedReposList.value = currentList
+        prefs.edit().putString("synced_github_repos", currentList.joinToString(",")).apply()
+    }
 
     // Clear previous demo videos on startup to have 0 preset test videos
     init {
@@ -239,7 +310,54 @@ class VideoViewModel(application: Application) : AndroidViewModel(application) {
         } else null
     }
 
-    // Recursively scan repository directories for video formats
+    // Parse nested M3U playlist files during repo indexing
+    private fun parseM3uPlaylist(url: String, playlistName: String, list: MutableList<SavedVideo>) {
+        try {
+            val reqBuilder = Request.Builder()
+                .url(url)
+                .header("User-Agent", "Astra-NovaCore-Player")
+            val token = _githubToken.value
+            if (token.isNotBlank()) {
+                reqBuilder.header("Authorization", "token $token")
+            }
+            httpClient.newCall(reqBuilder.build()).execute().use { response ->
+                if (!response.isSuccessful) return
+                val body = response.body?.string() ?: return
+                val lines = body.lines()
+                var currentTitle = ""
+                for (line in lines) {
+                    val trimmed = line.trim()
+                    if (trimmed.startsWith("#EXTINF:")) {
+                        val commaIdx = trimmed.indexOf(",")
+                        currentTitle = if (commaIdx != -1) {
+                            trimmed.substring(commaIdx + 1).trim()
+                        } else {
+                            ""
+                        }
+                    } else if (trimmed.startsWith("http") && !trimmed.contains(" ")) {
+                        val lowerUrl = trimmed.lowercase()
+                        if (lowerUrl.contains(".mp4") || lowerUrl.contains(".m3u8") || lowerUrl.contains(".mkv") || lowerUrl.contains(".mov") || lowerUrl.contains(".avi") || lowerUrl.contains(".webm")) {
+                            val finalTitle = if (currentTitle.isNotBlank()) currentTitle else trimmed.substringAfterLast("/").substringBeforeLast(".")
+                            list.add(
+                                SavedVideo(
+                                    title = "[M3U] $finalTitle",
+                                    localUri = trimmed,
+                                    folderName = "Cloud Playlist: $playlistName",
+                                    durationMs = 0L,
+                                    sizeBytes = 0L
+                                )
+                            )
+                        }
+                        currentTitle = ""
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("VideoViewModel", "Erro ao processar playlist M3U: ${e.message}")
+        }
+    }
+
+    // Recursively scan repository directories with token header support and live logs
     private fun scanDirectoryRecursively(owner: String, repo: String, path: String, list: MutableList<SavedVideo>) {
         val url = if (path.isEmpty()) {
             "https://api.github.com/repos/$owner/$repo/contents"
@@ -247,14 +365,26 @@ class VideoViewModel(application: Application) : AndroidViewModel(application) {
             "https://api.github.com/repos/$owner/$repo/contents/$path"
         }
         
-        val request = Request.Builder()
+        val requestBuilder = Request.Builder()
             .url(url)
             .header("User-Agent", "Astra-NovaCore-Player")
-            .build()
+        
+        val token = _githubToken.value
+        if (token.isNotBlank()) {
+            requestBuilder.header("Authorization", "token $token")
+        }
+        
+        val request = requestBuilder.build()
             
         httpClient.newCall(request).execute().use { response ->
+            if (response.code == 403) {
+                val limitHeader = response.header("X-RateLimit-Remaining")
+                if (limitHeader == "0") {
+                    throw Exception("Limite de requisições da API pública do GitHub excedido (60 req/hr). Adicione um Token de Acesso pessoal nas configurações do Auth Cloud para liberar limites corporativos.")
+                }
+            }
             if (!response.isSuccessful) {
-                throw Exception("Servidor respondeu com código ${response.code}")
+                throw Exception("Servidor respondeu com código ${response.code} ao varrer /$path")
             }
             val body = response.body?.string() ?: return
             val array = org.json.JSONArray(body)
@@ -266,9 +396,16 @@ class VideoViewModel(application: Application) : AndroidViewModel(application) {
                 val downloadUrl = item.optString("download_url")
                 
                 if (type == "dir") {
+                    _syncLog.value = "Varrendo pasta: /$itemPath"
                     scanDirectoryRecursively(owner, repo, itemPath, list)
                 } else if (type == "file") {
-                    if (isVideoExtension(name)) {
+                    val lowerName = name.lowercase()
+                    if (lowerName.endsWith(".m3u") || (lowerName.endsWith(".m3u8") && !downloadUrl.isNullOrEmpty() && !downloadUrl.contains("m3u8"))) {
+                        _syncLog.value = "Analisando playlist: $name"
+                        parseM3uPlaylist(downloadUrl, name.substringBeforeLast("."), list)
+                    } else if (isVideoExtension(name)) {
+                        _syncLog.value = "Localizado vídeo: $name"
+                        _scannedVideosCount.value = _scannedVideosCount.value + 1
                         val folderName = if (path.isEmpty()) "Cloud:$repo" else "Cloud:$repo/${itemPath.substringBeforeLast("/")}"
                         list.add(
                             SavedVideo(
@@ -289,6 +426,7 @@ class VideoViewModel(application: Application) : AndroidViewModel(application) {
         val lower = name.lowercase()
         return lower.endsWith(".mp4") || 
                lower.endsWith(".m3u8") || 
+               lower.endsWith(".m3u") || 
                lower.endsWith(".mkv") || 
                lower.endsWith(".mov") || 
                lower.endsWith(".avi") || 
@@ -296,7 +434,7 @@ class VideoViewModel(application: Application) : AndroidViewModel(application) {
                lower.endsWith(".webm")
     }
 
-    // Sincronizar repositório público do Github
+    // Sincronizar repositório público do Github com logs e estatísticas em tempo real
     fun syncGithubRepo(repoUrl: String, onSuccess: (Int) -> Unit, onError: (String) -> Unit) {
         viewModelScope.launch(Dispatchers.IO) {
             val parsed = parseGithubUrl(repoUrl)
@@ -308,11 +446,14 @@ class VideoViewModel(application: Application) : AndroidViewModel(application) {
             }
             val (owner, repo) = parsed
             _isImporting.value = true
+            _scannedVideosCount.value = 0
+            _syncLog.value = "Iniciando conexão segura com a API do GitHub..."
             
             try {
                 val videosFound = mutableListOf<SavedVideo>()
                 scanDirectoryRecursively(owner, repo, "", videosFound)
                 
+                _syncLog.value = "Gravando ${videosFound.size} mídias encontradas no banco de dados local..."
                 var insertedCount = 0
                 for (video in videosFound) {
                     val exists = dao.getVideoByUri(video.localUri)
@@ -322,13 +463,18 @@ class VideoViewModel(application: Application) : AndroidViewModel(application) {
                     }
                 }
                 
+                // Add to persistent quick connect bookmarks stack
+                addSyncedRepoToHistory("$owner/$repo")
+                
+                _syncLog.value = "Concluído! $insertedCount novas mídias adicionadas com sucesso."
                 withContext(Dispatchers.Main) {
                     onSuccess(insertedCount)
                 }
             } catch (e: Exception) {
                 Log.e("VideoViewModel", "Github sync failed: $e")
+                _syncLog.value = "Falha: ${e.message}"
                 withContext(Dispatchers.Main) {
-                    onError(e.localizedMessage ?: "Erro de conexão")
+                    onError(e.localizedMessage ?: e.message ?: "Erro de conexão")
                 }
             } finally {
                 _isImporting.value = false

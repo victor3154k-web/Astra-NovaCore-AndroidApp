@@ -10,12 +10,14 @@ import androidx.annotation.OptIn
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.*
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
@@ -121,7 +123,48 @@ fun CustomVideoPlayer(
     var showControls by remember { mutableStateOf(true) }
     var showSettingsDrawer by remember { mutableStateOf(false) }
     var showThreeDotsMenu by remember { mutableStateOf(false) }
+    var audioBoostLevel by remember { mutableStateOf(100) }
     var playbackError by remember { mutableStateOf<PlayerNotification?>(null) }
+
+    // Drag gestures HUD overlay state
+    var showGestureHUD by remember { mutableStateOf(false) }
+    var gestureHUDType by remember { mutableStateOf("volume") } // "volume" or "brightness"
+    var gestureHUDValue by remember { mutableStateOf(100) }
+    var brightnessLevel by remember {
+        mutableStateOf(
+            context.findActivity()?.window?.attributes?.screenBrightness?.let {
+                if (it < 0f) 0.5f else it
+            } ?: 0.5f
+        )
+    }
+
+    // Apply Screen Brightness live when it changes
+    LaunchedEffect(brightnessLevel) {
+        try {
+            val activity = context.findActivity()
+            activity?.runOnUiThread {
+                val layoutParams = activity.window.attributes
+                layoutParams.screenBrightness = brightnessLevel.coerceIn(0.01f, 1f)
+                activity.window.attributes = layoutParams
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("CustomVideoPlayer", "Erro ao aplicar brilho: ${e.message}")
+        }
+    }
+
+    // Apply Audio Boost live to VLC and ExoPlayer when it changes
+    LaunchedEffect(audioBoostLevel, decoderMode) {
+        try {
+            if (decoderMode == "SW") {
+                vlcMediaPlayer.volume = audioBoostLevel.coerceIn(0, 300)
+            } else {
+                val baseVolume = (audioBoostLevel.toFloat() / 100f).coerceIn(0f, 1f)
+                exoPlayer.volume = baseVolume
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("CustomVideoPlayer", "Erro ao aplicar Audio Boost: ${e.message}")
+        }
+    }
 
     // Auto-dismiss the transient self-healing notification after 6 seconds
     LaunchedEffect(playbackError) {
@@ -466,17 +509,63 @@ fun CustomVideoPlayer(
         else -> FontFamily.SansSerif
     }
 
-    Box(
+    BoxWithConstraints(
         modifier = Modifier
             .fillMaxSize()
             .background(Color.Black)
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null
-            ) {
-                showControls = !showControls
-            }
     ) {
+        val maxWidthPx = constraints.maxWidth.toFloat()
+        val maxHeightPx = constraints.maxHeight.toFloat()
+
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .pointerInput(maxWidthPx) {
+                    var isLeftSide = false
+                    detectVerticalDragGestures(
+                        onDragStart = { offset ->
+                            isLeftSide = offset.x < (maxWidthPx / 2f)
+                            showGestureHUD = true
+                            gestureHUDType = if (isLeftSide) "brightness" else "volume"
+                            if (isLeftSide) {
+                                gestureHUDValue = (brightnessLevel * 100).toInt()
+                            } else {
+                                gestureHUDValue = audioBoostLevel
+                            }
+                        },
+                        onDragEnd = {
+                            coroutineScope.launch {
+                                delay(1200)
+                                showGestureHUD = false
+                            }
+                        },
+                        onDragCancel = {
+                            showGestureHUD = false
+                        },
+                        onVerticalDrag = { change, dragAmount ->
+                            change.consume()
+                            val sensitivity = 1.5f
+                            val delta = -(dragAmount / maxHeightPx) * sensitivity
+                            if (isLeftSide) {
+                                val newBrightness = (brightnessLevel + delta).coerceIn(0.01f, 1f)
+                                brightnessLevel = newBrightness
+                                gestureHUDValue = (newBrightness * 100).toInt()
+                            } else {
+                                val newVol = (audioBoostLevel + (delta * 300f)).coerceIn(0f, 300f)
+                                audioBoostLevel = newVol.toInt()
+                                gestureHUDValue = newVol.toInt()
+                            }
+                        }
+                    )
+                }
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null
+                ) {
+                    showControls = !showControls
+                }
+        ) {
+            // Nested content starts here
         // Player View
         if (decoderMode == "SW") {
             AndroidView(
@@ -732,6 +821,19 @@ fun CustomVideoPlayer(
                         Icon(
                             imageVector = Icons.Default.Settings,
                             contentDescription = "Ajustar Legendass / Áudio",
+                            tint = GoldMetallic
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.width(8.dp))
+
+                    IconButton(
+                        onClick = { showThreeDotsMenu = !showThreeDotsMenu },
+                        modifier = Modifier.background(Color.Black.copy(alpha = 0.5f), CircleShape)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.MoreVert,
+                            contentDescription = "Mais opções (Audio Boost)",
                             tint = GoldMetallic
                         )
                     }
@@ -1211,6 +1313,228 @@ fun CustomVideoPlayer(
                   }
               }
           }
+
+        // Audio Boost three-dots menu overlay
+        if (showThreeDotsMenu) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.5f))
+                    .clickable { showThreeDotsMenu = false }
+            ) {
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = DarkBackground),
+                    shape = RoundedCornerShape(24.dp),
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .padding(24.dp)
+                        .widthIn(max = 350.dp)
+                        .border(1.dp, GoldMetallic.copy(alpha = 0.3f), RoundedCornerShape(24.dp))
+                        .clickable(enabled = false) {}
+                ) {
+                    Column(
+                        modifier = Modifier.padding(20.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(36.dp)
+                                        .clip(CircleShape)
+                                        .background(GoldMetallic.copy(alpha = 0.12f)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.VolumeUp,
+                                        contentDescription = null,
+                                        tint = GoldMetallic,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+                                Text(
+                                    text = "Amplificador de Áudio",
+                                    color = Color.White,
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.Black
+                                )
+                            }
+                            
+                            IconButton(onClick = { showThreeDotsMenu = false }) {
+                                Icon(
+                                    imageVector = Icons.Default.Close,
+                                    contentDescription = "Fechar",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(16.dp))
+
+                        Text(
+                            text = "$audioBoostLevel%",
+                            color = GoldMetallic,
+                            fontSize = 42.sp,
+                            fontWeight = FontWeight.Black,
+                            letterSpacing = (-1).sp
+                        )
+
+                        Text(
+                            text = when {
+                                audioBoostLevel <= 100 -> "Volume Normal (Qualidade Original)"
+                                audioBoostLevel <= 150 -> "Ganho Suave (+50% Amplificado)"
+                                audioBoostLevel <= 200 -> "Super Volume (+100% Amplificado)"
+                                else -> "Astra Turbo Boost (+200% Ultra Amplificado!)"
+                            },
+                            color = LightGray,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(top = 4.dp, bottom = 12.dp)
+                        )
+
+                        Slider(
+                            value = audioBoostLevel.toFloat(),
+                            onValueChange = { audioBoostLevel = it.toInt() },
+                            valueRange = 100f..300f,
+                            colors = SliderDefaults.colors(
+                                thumbColor = GoldMetallic,
+                                activeTrackColor = GoldMetallic,
+                                inactiveTrackColor = BorderGray
+                            ),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+
+                        Spacer(modifier = Modifier.height(14.dp))
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceEvenly
+                        ) {
+                            listOf(100, 150, 200, 300).forEach { pct ->
+                                val isSelected = audioBoostLevel == pct
+                                OutlinedButton(
+                                    onClick = { audioBoostLevel = pct },
+                                    shape = RoundedCornerShape(10.dp),
+                                    colors = ButtonDefaults.outlinedButtonColors(
+                                        containerColor = if (isSelected) GoldMetallic.copy(alpha = 0.15f) else Color.Transparent,
+                                        contentColor = if (isSelected) GoldMetallic else Color.White
+                                    ),
+                                    border = BorderStroke(
+                                        width = 1.dp,
+                                        color = if (isSelected) GoldMetallic else Color.White.copy(alpha = 0.15f)
+                                    ),
+                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                                    modifier = Modifier.height(32.dp)
+                                ) {
+                                    Text(
+                                        text = if (pct == 100) "Normal" else "${pct}%",
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(14.dp))
+
+                        Text(
+                            text = "Nota: O recurso de amplificação via software aumenta os decibéis originais sem distorcer o fluxo de sincronização dos decodificadores nativos.",
+                            color = MediumGray,
+                            fontSize = 9.sp,
+                            lineHeight = 13.sp,
+                            textAlign = TextAlign.Center
+                        )
+                    }
+                }
+            }
+        }
+
+        // Transient Gesture HUD Overlay
+        AnimatedVisibility(
+            visible = showGestureHUD,
+            enter = fadeIn(animationSpec = tween(150)) + scaleIn(initialScale = 0.8f),
+            exit = fadeOut(animationSpec = tween(150)) + scaleOut(targetScale = 0.8f),
+            modifier = Modifier.align(Alignment.Center)
+        ) {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = Color.Black.copy(alpha = 0.85f)),
+                shape = RoundedCornerShape(20.dp),
+                border = BorderStroke(1.5.dp, GoldMetallic.copy(alpha = 0.4f)),
+                modifier = Modifier
+                    .width(170.dp)
+                    .ledGlow(
+                        color = GoldMetallic,
+                        borderRadius = 20.dp,
+                        glowRadius = 15.dp,
+                        enabled = true
+                    )
+            ) {
+                Column(
+                    modifier = Modifier.padding(20.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
+                ) {
+                    val isBrightness = gestureHUDType == "brightness"
+                    Icon(
+                        imageVector = if (isBrightness) Icons.Default.Brightness5 else {
+                            if (gestureHUDValue == 0) Icons.Default.VolumeMute
+                            else if (gestureHUDValue < 100) Icons.Default.VolumeDown
+                            else Icons.Default.VolumeUp
+                        },
+                        contentDescription = null,
+                        tint = GoldMetallic,
+                        modifier = Modifier.size(44.dp)
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text(
+                        text = if (isBrightness) "BRILHO" else "VOLUME",
+                        color = LightGray,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Black,
+                        letterSpacing = 1.3.sp
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = if (isBrightness) "$gestureHUDValue%" else {
+                            if (gestureHUDValue > 100) "$gestureHUDValue% (BOOST)" else "$gestureHUDValue%"
+                        },
+                        color = Color.White,
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(6.dp)
+                            .clip(CircleShape)
+                            .background(Color.White.copy(alpha = 0.15f))
+                    ) {
+                        val fraction = if (isBrightness) {
+                            (gestureHUDValue / 100f).coerceIn(0f, 1f)
+                        } else {
+                            (gestureHUDValue / 300f).coerceIn(0f, 1f)
+                        }
+                        Box(
+                            modifier = Modifier
+                                .fillMaxHeight()
+                                .fillMaxWidth(fraction)
+                                .clip(CircleShape)
+                                .background(GoldMetallic)
+                        )
+                    }
+                }
+            }
+        }
+        }
     }
 }
 
