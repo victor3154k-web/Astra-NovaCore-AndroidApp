@@ -59,27 +59,6 @@ Controle cirúrgico do hardware do seu dispositivo:
 
 ---
 
-## 📂 Visão Geral da Arquitetura de Pastas
-
-```
-app/src/main/java/com/example/
-├── data/
-│   ├── VideoDatabase.kt   # Local Room Database
-│   └── SavedVideo.kt      # Modelos de Entidade de Vídeo
-├── ui/
-│   ├── theme/
-│   │   ├── Color.kt       # Paleta de cores LED/Gold
-│   │   └── Theme.kt       # Central de Temas e Efeitos do App
-│   ├── components/
-│   │   ├── CustomVideoPlayer.kt  # Player Customizado e Controles de Áudio Boost
-│   │   └── PerformanceMeter.kt   # Medidores de RAM & Utilização de CPU
-│   └── screens/
-│       ├── DashboardScreen.kt    # Principal (Vídeos, Folders, Cloud, Memory)
-│       └── SettingsScreen.kt     # Gavetas, Dual Library, Alocação de Cores e Temas
-└── MainActivity.kt        # Classe de Entrada e Orquestração
-```
-
----
 
 ## 🛠️ Tecnologias Utilizadas
 
