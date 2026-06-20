@@ -69,13 +69,4 @@ Controle cirúrgico do hardware do seu dispositivo:
 - **Media3 (ExoPlayer)** & **MobileVLCKit** para reprodução multimídia profissional.
 
 ---
-
-## 📱 Requisitos e Instalação
-
-1. Clone este repositório.
-2. Certifique-se de ter o **Android Studio Ladybug** (ou mais recente).
-3. Espere o Gradle baixar as dependências (`MobileVLCKit`, `Media3`, `Room`).
-4. Execute o app em qualquer emulador ou dispositivo físico rodando Android 8.0 (API 26) ou superior.
-
----
 *Astra NovaCore Player: Redefinindo o significado de reprodução e estilo no Android.* 🚀🌌
