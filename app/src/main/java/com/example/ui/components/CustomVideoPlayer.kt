@@ -109,33 +109,48 @@ fun CustomVideoPlayer(
 
     // Initialize LibVLC dynamically based on decoderMode and activeLibrary using LibVlcHolder
     val vlcHolder = remember(decoderMode, activeLibrary) {
+        val cpuCores = prefs.getInt("cpu_cores_allocated", Runtime.getRuntime().availableProcessors())
+
         val options = ArrayList<String>()
         options.add("--no-sub-autodetect-file")
-        // Tune cache sizes for extremely smooth decoding of high bitrate UHD and complicated HEVC files
-        options.add("--file-caching=2500")
-        options.add("--network-caching=4000")
-        options.add("--live-caching=1500")
+        
+        // Optimize cache buffers (between 3000ms and 5000ms) to ensure smooth playback of 2K/4K high-bitrate videos without stuttering
+        options.add("--file-caching=5000")
+        options.add("--network-caching=5000")
+        options.add("--live-caching=3000")
+        
+        // Force hardware decoding optimization features across avcodec pipeline globally
+        options.add("--avcodec-hw=any")
         
         if (activeLibrary == "ffmpeg") {
             if (decoderMode == "HW") {
                 // FFmpeg Hardware path: Use MediaCodec HW modules first, falling back to FFmpeg software avcodec pipeline
                 options.add("--codec=mediacodec_ndk,mediacodec_jni,avcodec,all")
+                options.add("--mediacodec-all-codecs")
+                options.add("--drop-late-frames")
+                options.add("--skip-frames")
+                options.add("--avcodec-threads=$cpuCores")
             } else {
-                // FFmpeg Software path: Force software avcodec decoding module with async threading options
+                // FFmpeg Software path: Force software avcodec decoding module with dynamic CPU thread scaling
                 options.add("--codec=avcodec,all")
-                options.add("--avcodec-threads=4") // Threaded software slice/frame decoding
+                options.add("--avcodec-threads=$cpuCores") // Dynamically allocate exact selected core count
                 options.add("--avcodec-skiploopfilter=4") // Skip loop filter on complex frames for fast, non-blocking rendering
                 options.add("--avcodec-fast") // Optimized speed-ups for async rendering
-                options.add("--drop-late-frames") // Synchronize and drop late frames asynchronously
+                options.add("--drop-late-frames") // Prioritize audio speed and drop late frames
+                options.add("--skip-frames") // Prevent frame jams under high payload
             }
         } else {
             if (decoderMode == "HW") {
                 // MobileVLCKit Hardware path: Force hardware acceleration modules (MediaCodec)
                 options.add("--codec=mediacodec_ndk,mediacodec_jni,all")
+                options.add("--mediacodec-all-codecs")
+                options.add("--drop-late-frames")
+                options.add("--skip-frames")
+                options.add("--avcodec-threads=$cpuCores")
             } else {
                 // MobileVLCKit Software path: software-only decoding with threaded fallbacks
                 options.add("--codec=all")
-                options.add("--avcodec-threads=4")
+                options.add("--avcodec-threads=$cpuCores") // Dynamically allocate exact selected core count
                 options.add("--avcodec-skiploopfilter=4") // Skip loop filter when decoding slows down
                 options.add("--avcodec-fast") // Allow quick-decoding tweaks
                 options.add("--drop-late-frames") // Synchronize and drop extremely late video frames
