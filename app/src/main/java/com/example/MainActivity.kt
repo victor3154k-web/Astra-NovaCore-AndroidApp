@@ -33,10 +33,11 @@ class MainActivity : ComponentActivity() {
             MyApplicationTheme {
                 val viewModel: VideoViewModel = viewModel()
                 val activePlayingVideo by viewModel.activePlayingVideo.collectAsState()
-                var showSplash by remember { mutableStateOf(true) }
+                var showSplash by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(true) }
+                val isDisplayingSplash = showSplash && (activePlayingVideo == null)
 
                 Crossfade(
-                    targetState = showSplash,
+                    targetState = isDisplayingSplash,
                     animationSpec = tween(durationMillis = 800, easing = EaseInOutQuad),
                     label = "splash_transition"
                 ) { isSplash ->

@@ -31,6 +31,86 @@ import com.example.ui.theme.DarkSurface
 import com.example.ui.theme.GoldMetallic
 import com.example.ui.theme.MediumGray
 import java.io.File
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.media.MediaMetadataRetriever
+import android.net.Uri
+import android.os.Build
+import android.util.Size
+import androidx.compose.runtime.produceState
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+
+@Composable
+fun rememberVideoThumbnail(video: SavedVideo): Bitmap? {
+    val context = LocalContext.current
+    return produceState<Bitmap?>(initialValue = null, keys = arrayOf(video.id, video.localUri)) {
+        withContext(Dispatchers.IO) {
+            try {
+                // 1. Try local cache file
+                val cachedFile = File(context.filesDir, "thumbnails/thumb_${video.id}.jpg")
+                if (cachedFile.exists()) {
+                    val bmp = BitmapFactory.decodeFile(cachedFile.absolutePath)
+                    if (bmp != null) {
+                        withContext(Dispatchers.Main) {
+                            value = bmp
+                        }
+                        return@withContext
+                    }
+                }
+
+                // 2. Try MediaStore or content URI loading
+                if (video.localUri.startsWith("content://")) {
+                    val uri = Uri.parse(video.localUri)
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                        try {
+                            val bmp = context.contentResolver.loadThumbnail(uri, Size(320, 240), null)
+                            if (bmp != null) {
+                                withContext(Dispatchers.Main) {
+                                    value = bmp
+                                }
+                                return@withContext
+                            }
+                        } catch (e: Exception) {
+                            android.util.Log.d("VideoListItem", "loadThumbnail failed: ${e.message}")
+                        }
+                    }
+                }
+
+                // 3. Fallback: MediaMetadataRetriever
+                val retriever = MediaMetadataRetriever()
+                try {
+                    if (video.localUri.startsWith("content://")) {
+                        val uri = Uri.parse(video.localUri)
+                        context.contentResolver.openFileDescriptor(uri, "r")?.use { pfd ->
+                            retriever.setDataSource(pfd.fileDescriptor)
+                        }
+                    } else if (video.localUri.startsWith("http://") || video.localUri.startsWith("https://")) {
+                        retriever.setDataSource(video.localUri, HashMap<String, String>())
+                    } else if (video.localUri.startsWith("rtsp://") || video.localUri.startsWith("rtmp://")) {
+                        // RTSP/RTMP doesn't support easy metadata retrieval directly in standard MediaMetadataRetriever
+                    } else {
+                        retriever.setDataSource(video.localUri)
+                    }
+                    val bmp = retriever.getFrameAtTime(1000000) // At 1 second
+                    if (bmp != null) {
+                        withContext(Dispatchers.Main) {
+                            value = bmp
+                        }
+                    }
+                } catch (e: Exception) {
+                    android.util.Log.d("VideoListItem", "MediaMetadataRetriever failed: ${e.message}")
+                } finally {
+                    try {
+                        retriever.release()
+                    } catch (e: Exception) {}
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("VideoListItem", "Error getting video thumbnail: ${e.message}")
+            }
+        }
+    }.value
+}
 
 @Composable
 fun VideoListItem(
@@ -41,11 +121,7 @@ fun VideoListItem(
     tintColor: Color = GoldMetallic
 ) {
     val context = LocalContext.current
-    
-    // Check if we have an extracted thumbnail image saved
-    val thumbnailFile = remember(video.id) {
-        File(context.filesDir, "thumbnails/thumb_${video.id}.jpg")
-    }
+    val thumbnailBitmap = rememberVideoThumbnail(video)
 
     if (isGridView) {
         // Grid card layout
@@ -64,9 +140,9 @@ fun VideoListItem(
                     .clip(RoundedCornerShape(8.dp))
                     .background(Color.Black)
             ) {
-                if (thumbnailFile.exists()) {
+                if (thumbnailBitmap != null) {
                     Image(
-                        painter = rememberAsyncImagePainter(thumbnailFile),
+                        painter = rememberAsyncImagePainter(thumbnailBitmap),
                         contentDescription = video.title,
                         modifier = Modifier.fillMaxSize(),
                         contentScale = ContentScale.Crop
@@ -170,9 +246,9 @@ fun VideoListItem(
                     .background(Color.DarkGray.copy(alpha = 0.4f))
                     .border(0.5.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(8.dp))
             ) {
-                if (thumbnailFile.exists()) {
+                if (thumbnailBitmap != null) {
                     Image(
-                        painter = rememberAsyncImagePainter(thumbnailFile),
+                        painter = rememberAsyncImagePainter(thumbnailBitmap),
                         contentDescription = video.title,
                         modifier = Modifier.fillMaxSize(),
                         contentScale = ContentScale.Crop

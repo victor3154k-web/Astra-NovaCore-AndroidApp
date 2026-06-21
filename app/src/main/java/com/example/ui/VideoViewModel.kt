@@ -30,21 +30,127 @@ class VideoViewModel(application: Application) : AndroidViewModel(application) {
     private val _isGridView = MutableStateFlow(false)
     val isGridView: StateFlow<Boolean> = _isGridView.asStateFlow()
 
+    private val prefs = application.getSharedPreferences("anc_play_prefs", Context.MODE_PRIVATE)
+
+    // Leitura Total setting state (Full Read Mode)
+    private val _leituraTotal = MutableStateFlow(prefs.getBoolean("leitura_total", false))
+    val leituraTotal: StateFlow<Boolean> = _leituraTotal.asStateFlow()
+
+    private val _scannedVideos = MutableStateFlow<List<SavedVideo>>(emptyList())
+    val scannedVideos: StateFlow<List<SavedVideo>> = _scannedVideos.asStateFlow()
+
+    private val scannedPositions = mutableMapOf<Int, Long>()
+
+    init {
+        // Automatically scan videos on start if Leitura Total is active
+        if (_leituraTotal.value) {
+            refreshScannedVideos()
+        }
+    }
+
+    fun setLeituraTotal(enabled: Boolean) {
+        _leituraTotal.value = enabled
+        prefs.edit().putBoolean("leitura_total", enabled).apply()
+        if (enabled) {
+            refreshScannedVideos()
+        }
+    }
+
+    fun refreshScannedVideos() {
+        viewModelScope.launch(Dispatchers.IO) {
+            val list = mutableListOf<SavedVideo>()
+            val context = getApplication<Application>()
+            
+            val hasPermission = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+                androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.READ_MEDIA_VIDEO) == android.content.pm.PackageManager.PERMISSION_GRANTED
+            } else {
+                androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.READ_EXTERNAL_STORAGE) == android.content.pm.PackageManager.PERMISSION_GRANTED
+            }
+            
+            if (!hasPermission) {
+                _scannedVideos.value = emptyList()
+                return@launch
+            }
+
+            val projection = arrayOf(
+                android.provider.MediaStore.Video.Media._ID,
+                android.provider.MediaStore.Video.Media.DISPLAY_NAME,
+                android.provider.MediaStore.Video.Media.DURATION,
+                android.provider.MediaStore.Video.Media.SIZE,
+                android.provider.MediaStore.Video.Media.DATA,
+                android.provider.MediaStore.Video.Media.BUCKET_DISPLAY_NAME
+            )
+
+            val queryUri = android.provider.MediaStore.Video.Media.EXTERNAL_CONTENT_URI
+            try {
+                context.contentResolver.query(
+                    queryUri,
+                    projection,
+                    null,
+                    null,
+                    "${android.provider.MediaStore.Video.Media.DATE_ADDED} DESC"
+                )?.use { cursor ->
+                    val idCol = cursor.getColumnIndexOrThrow(android.provider.MediaStore.Video.Media._ID)
+                    val nameCol = cursor.getColumnIndexOrThrow(android.provider.MediaStore.Video.Media.DISPLAY_NAME)
+                    val durationCol = cursor.getColumnIndexOrThrow(android.provider.MediaStore.Video.Media.DURATION)
+                    val sizeCol = cursor.getColumnIndexOrThrow(android.provider.MediaStore.Video.Media.SIZE)
+                    val dataCol = cursor.getColumnIndexOrThrow(android.provider.MediaStore.Video.Media.DATA)
+                    val bucketCol = cursor.getColumnIndex(android.provider.MediaStore.Video.Media.BUCKET_DISPLAY_NAME)
+
+                    while (cursor.moveToNext()) {
+                        val id = cursor.getLong(idCol)
+                        val name = cursor.getString(nameCol) ?: "Video_$id"
+                        val duration = cursor.getLong(durationCol)
+                        val size = cursor.getLong(sizeCol)
+                        val data = cursor.getString(dataCol) ?: ""
+                        val bucket = if (bucketCol != -1) cursor.getString(bucketCol) else "Sistema"
+                        val folder = if (bucket.isNullOrBlank()) "Geral" else bucket
+
+                        val uri = android.content.ContentUris.withAppendedId(queryUri, id).toString()
+                        val finalUri = if (data.isNotBlank() && java.io.File(data).exists()) data else uri
+                        val savedPos = scannedPositions[-(id.toInt().coerceAtLeast(1))] ?: 0L
+                        
+                        list.add(
+                            SavedVideo(
+                                id = -(id.toInt().coerceAtLeast(1)),
+                                title = name,
+                                durationMs = duration,
+                                sizeBytes = size,
+                                localUri = finalUri,
+                                folderName = folder,
+                                playbackPositionMs = savedPos
+                            )
+                        )
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e("VideoViewModel", "Erro ao escanear vídeos da MediaStore: $e")
+            }
+            _scannedVideos.value = list
+        }
+    }
+
     // Loaded videos list
     val videosFlow: StateFlow<List<SavedVideo>> = repository.allVideos
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    // Active video source list based on Full Read Mode
+    val activeVideosSourceFlow: StateFlow<List<SavedVideo>> = combine(
+        videosFlow,
+        scannedVideos,
+        leituraTotal
+    ) { dbList, scannedList, isLeituraTotal ->
+        if (isLeituraTotal) scannedList else dbList
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
     // Filtered videos
-    val filteredVideosFlow: StateFlow<List<SavedVideo>> = combine(videosFlow, searchQuery) { list, query ->
+    val filteredVideosFlow: StateFlow<List<SavedVideo>> = combine(activeVideosSourceFlow, searchQuery) { list, query ->
         if (query.isBlank()) {
             list
         } else {
             list.filter { it.title.contains(query, ignoreCase = true) }
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
-
-    // Grouped by directory including custom folders (populated or empty)
-    private val prefs = application.getSharedPreferences("anc_play_prefs", Context.MODE_PRIVATE)
 
     // Custom manually created folders. Default options: "Meus Vídeos", "Geral", "Streams"
     private val _customFolders = MutableStateFlow<Set<String>>(
@@ -68,14 +174,20 @@ class VideoViewModel(application: Application) : AndroidViewModel(application) {
 
     val allGroupedFoldersFlow: StateFlow<Map<String, List<SavedVideo>>> = combine(
         filteredVideosFlow,
-        _customFolders
-    ) { videos, customFold ->
-        val result = customFold.associateWith { emptyList<SavedVideo>() }.toMutableMap()
-        val grouped = videos.groupBy { it.folderName }
-        grouped.forEach { (folderName, list) ->
-            result[folderName] = list
+        _customFolders,
+        leituraTotal
+    ) { videos, customFold, isLeituraTotal ->
+        if (isLeituraTotal) {
+            // For scanned videos, only show directories that actually have videos! Do not mix in custom folders.
+            videos.groupBy { it.folderName }.toSortedMap()
+        } else {
+            val result = customFold.associateWith { emptyList<SavedVideo>() }.toMutableMap()
+            val grouped = videos.groupBy { it.folderName }
+            grouped.forEach { (folderName, list) ->
+                result[folderName] = list
+            }
+            result.toSortedMap()
         }
-        result.toSortedMap()
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
 
     // We keep the old name to prevent breaking other files or we can map it
@@ -532,6 +644,14 @@ class VideoViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun updatePlaybackPosition(videoId: Int, positionMs: Long) {
+        if (videoId < 0) {
+            scannedPositions[videoId] = positionMs
+            val updatedList = _scannedVideos.value.map {
+                if (it.id == videoId) it.copy(playbackPositionMs = positionMs) else it
+            }
+            _scannedVideos.value = updatedList
+            return
+        }
         viewModelScope.launch(Dispatchers.IO) {
             val video = repository.getVideoById(videoId)
             if (video != null) {

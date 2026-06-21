@@ -49,6 +49,35 @@ import com.example.ui.theme.*
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
+class LibVlcHolder(val libVlc: LibVLC, val mediaPlayer: MediaPlayer) : RememberObserver {
+    private var isReleased = false
+
+    override fun onRemembered() {}
+
+    override fun onForgotten() {
+        release()
+    }
+
+    override fun onAbandoned() {
+        release()
+    }
+
+    private fun release() {
+        if (!isReleased) {
+            isReleased = true
+            try {
+                if (mediaPlayer.isPlaying) {
+                    mediaPlayer.stop()
+                }
+                mediaPlayer.release()
+                libVlc.release()
+            } catch (e: Exception) {
+                android.util.Log.e("CustomVideoPlayer", "Error releasing VLC holder: ${e.message}")
+            }
+        }
+    }
+}
+
 @Composable
 fun CustomVideoPlayer(
     video: SavedVideo,
@@ -75,53 +104,55 @@ fun CustomVideoPlayer(
     val coroutineScope = rememberCoroutineScope()
 
     // Read the active dual library backend preference
-    val prefs = remember { context.getSharedPreferences("gold_player_settings", android.content.Context.MODE_PRIVATE) }
+    val prefs = remember { context.getSharedPreferences("anc_play_prefs", android.content.Context.MODE_PRIVATE) }
     val activeLibrary = remember { prefs.getString("dual_library_backend", "vlc") ?: "vlc" }
 
-    // Initialize LibVLC dynamically based on decoderMode and activeLibrary
-    val libVlc = remember(decoderMode, activeLibrary) {
+    // Initialize LibVLC dynamically based on decoderMode and activeLibrary using LibVlcHolder
+    val vlcHolder = remember(decoderMode, activeLibrary) {
         val options = ArrayList<String>()
         options.add("--no-sub-autodetect-file")
-        options.add("--extraintf=android_audiotrack")
         // Tune cache sizes for extremely smooth decoding of high bitrate UHD and complicated HEVC files
         options.add("--file-caching=2500")
         options.add("--network-caching=4000")
         options.add("--live-caching=1500")
         
         if (activeLibrary == "ffmpeg") {
-            // Prioritize FFmpeg avcodec decoder module
-            options.add("--codec=avcodec,all")
-            // Ensure async decoding and multi-threading options for FFmpeg
-            options.add("--avcodec-threads=4") // Threaded software slice/frame decoding
-            options.add("--avcodec-skiploopfilter=4") // Skip loop filter on complex frames for fast, non-blocking rendering
-            options.add("--avcodec-fast") // Optimized speed-ups for async rendering
-            options.add("--async") // Enable asynchronous audio/video sync
-            options.add("--drop-late-frames") // Synchronize and drop late frames asynchronously
-            options.add("--clock-synchro=0") // Async clock timing synchronization
+            if (decoderMode == "HW") {
+                // FFmpeg Hardware path: Use MediaCodec HW modules first, falling back to FFmpeg software avcodec pipeline
+                options.add("--codec=mediacodec_ndk,mediacodec_jni,avcodec,all")
+            } else {
+                // FFmpeg Software path: Force software avcodec decoding module with async threading options
+                options.add("--codec=avcodec,all")
+                options.add("--avcodec-threads=4") // Threaded software slice/frame decoding
+                options.add("--avcodec-skiploopfilter=4") // Skip loop filter on complex frames for fast, non-blocking rendering
+                options.add("--avcodec-fast") // Optimized speed-ups for async rendering
+                options.add("--drop-late-frames") // Synchronize and drop late frames asynchronously
+            }
         } else {
             if (decoderMode == "HW") {
-                // Enable hardware acceleration modules in VLC (MediaCodec)
+                // MobileVLCKit Hardware path: Force hardware acceleration modules (MediaCodec)
                 options.add("--codec=mediacodec_ndk,mediacodec_jni,all")
             } else {
-                // Software decoding only
+                // MobileVLCKit Software path: software-only decoding with threaded fallbacks
                 options.add("--codec=all")
-                // Threaded operations: utilize multi-threaded software decoding for high-complexity codecs
                 options.add("--avcodec-threads=4")
-                options.add("--avcodec-skiploopfilter=4") // Skip loop filter on high complexity files when decoding slows down
+                options.add("--avcodec-skiploopfilter=4") // Skip loop filter when decoding slows down
                 options.add("--avcodec-fast") // Allow quick-decoding tweaks
-                options.add("--drop-late-frames") // Synchronize and drop extremely late video frames if bottle-necks occur
+                options.add("--drop-late-frames") // Synchronize and drop extremely late video frames
                 options.add("--skip-frames") // Prevent system freeze on massive frame jams
             }
         }
-        LibVLC(context, options)
+        val libVlcInstance = LibVLC(context, options)
+        val mediaPlayerInstance = MediaPlayer(libVlcInstance)
+        LibVlcHolder(libVlcInstance, mediaPlayerInstance)
     }
 
-    val vlcMediaPlayer = remember(libVlc) {
-        MediaPlayer(libVlc)
-    }
+    val libVlc = vlcHolder.libVlc
+    val vlcMediaPlayer = vlcHolder.mediaPlayer
 
     // Track state
     var isPlaying by remember { mutableStateOf(true) }
+    var wasPlayingBeforeDrag by remember { mutableStateOf(false) }
     var currentPosition by remember { mutableStateOf(video.playbackPositionMs) }
     var duration by remember { mutableStateOf(video.durationMs) }
     var showControls by remember { mutableStateOf(true) }
@@ -173,9 +204,33 @@ fun CustomVideoPlayer(
         }
     }
 
-    // Auto-restore Portrait/Unspecified orientation when leaving player
+    // Auto-restore Portrait/Unspecified orientation and show status bars when leaving player
     DisposableEffect(Unit) {
+        try {
+            val activity = context.findActivity()
+            if (activity != null) {
+                val window = activity.window
+                val windowInsetsController = androidx.core.view.WindowCompat.getInsetsController(window, window.decorView)
+                // Configure system bars behavior to swipe to reveal temporarily
+                windowInsetsController.systemBarsBehavior = androidx.core.view.WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+                // Hide the status bar completely during video playback
+                windowInsetsController.hide(androidx.core.view.WindowInsetsCompat.Type.statusBars())
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("CustomVideoPlayer", "Erro ao ocultar status bar: ${e.message}")
+        }
         onDispose {
+            try {
+                val activityDest = context.findActivity()
+                if (activityDest != null) {
+                    val windowDest = activityDest.window
+                    val windowInsetsControllerDest = androidx.core.view.WindowCompat.getInsetsController(windowDest, windowDest.decorView)
+                    // Restore the status bar when exiting video player
+                    windowInsetsControllerDest.show(androidx.core.view.WindowInsetsCompat.Type.statusBars())
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("CustomVideoPlayer", "Erro ao restaurar status bar: ${e.message}")
+            }
             try {
                 context.findActivity()?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
             } catch (e: Exception) {}
@@ -186,6 +241,11 @@ fun CustomVideoPlayer(
     LaunchedEffect(video) {
         val uriStr = video.localUri
         var autoSuggested = false
+        val isRemote = uriStr.startsWith("http://") || 
+                       uriStr.startsWith("https://") || 
+                       uriStr.startsWith("rtsp://") || 
+                       uriStr.startsWith("rtmp://") || 
+                       uriStr.contains(".m3u8")
         
         // 1. Probe by extension first (fast check)
         val lower = uriStr.lowercase()
@@ -210,7 +270,7 @@ fun CustomVideoPlayer(
         }
         
         // 2. Probe by media track inspection (accurate check)
-        if (!autoSuggested && decoderMode == "HW") {
+        if (!autoSuggested && decoderMode == "HW" && !isRemote) {
             try {
                 val extractor = android.media.MediaExtractor()
                 if (uriStr.startsWith("/")) {
@@ -272,13 +332,37 @@ fun CustomVideoPlayer(
 
     // Load media item via LibVLC
     LaunchedEffect(video, vlcMediaPlayer) {
+        var pfd: android.os.ParcelFileDescriptor? = null
         try {
             // Configure LibVLC media
-            val file = java.io.File(video.localUri)
-            val media = if (file.exists()) {
-                Media(libVlc, file.absolutePath)
+            val isRemoteMode = video.localUri.startsWith("http://") || 
+                               video.localUri.startsWith("https://") || 
+                               video.localUri.startsWith("rtsp://") || 
+                               video.localUri.startsWith("rtmp://")
+            val uri = android.net.Uri.parse(video.localUri)
+            val media = if (isRemoteMode) {
+                Media(libVlc, uri)
             } else {
-                Media(libVlc, android.net.Uri.parse(video.localUri))
+                if (video.localUri.startsWith("content://")) {
+                    var m: Media? = null
+                    try {
+                        val openedPfd = context.contentResolver.openFileDescriptor(uri, "r")
+                        pfd = openedPfd
+                        if (openedPfd != null) {
+                            m = Media(libVlc, openedPfd.fileDescriptor)
+                        }
+                    } catch (e: Exception) {
+                        android.util.Log.e("CustomVideoPlayer", "Erro abrindo FileDescriptor para content URI: ${e.message}", e)
+                    }
+                    m ?: Media(libVlc, uri)
+                } else {
+                    val file = java.io.File(video.localUri)
+                    if (file.exists()) {
+                        Media(libVlc, file.absolutePath)
+                    } else {
+                        Media(libVlc, uri)
+                    }
+                }
             }
             
             vlcMediaPlayer.media = media
@@ -296,8 +380,17 @@ fun CustomVideoPlayer(
             }
             vlcMediaPlayer.rate = playbackSpeed
             isPlaying = true
+
+            // Keep the fd open by suspending until the LaunchedEffect is cancelled/disposed
+            kotlinx.coroutines.awaitCancellation()
         } catch (e: Exception) {
             android.util.Log.e("CustomVideoPlayer", "Erro ao iniciar mídia no player: ${e.message}", e)
+        } finally {
+            try {
+                pfd?.close()
+            } catch (ex: Exception) {
+                android.util.Log.e("CustomVideoPlayer", "Erro ao fechar ParcelFileDescriptor: ${ex.message}")
+            }
         }
     }
 
@@ -390,15 +483,7 @@ fun CustomVideoPlayer(
     }
 
     // Lifetime cleanup of VLC engines
-    DisposableEffect(Unit) {
-        onDispose {
-            try {
-                vlcMediaPlayer.stop()
-                vlcMediaPlayer.release()
-                libVlc.release()
-            } catch (e: Exception) {}
-        }
-    }
+    // Cleaned up natively via LibVlcHolder RememberObserver
 
     // Auto-fade controls
     LaunchedEffect(showControls) {
@@ -512,7 +597,9 @@ fun CustomVideoPlayer(
                                          vlcMediaPlayer.pause()
                                      }
                                  } catch (e: Exception) {}
-                                 vlcMediaPlayer.getVLCVout().detachViews()
+                                 try {
+                                     vlcMediaPlayer.getVLCVout().detachViews()
+                                 } catch (e: Exception) {}
                              }
                          })
                      }
@@ -686,8 +773,9 @@ fun CustomVideoPlayer(
                         onClick = {
                             val activity = context.findActivity()
                             if (activity != null) {
-                                val currentOrient = activity.requestedOrientation
-                                val targetOrient = if (currentOrient == ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE) {
+                                val resources = context.resources
+                                val isCurrentlyLandscape = resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
+                                val targetOrient = if (isCurrentlyLandscape) {
                                     ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
                                 } else {
                                     ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
@@ -875,24 +963,33 @@ fun CustomVideoPlayer(
                     
                     MetallicSlider(
                         value = sliderValue,
+                        valueRange = 0f..maxRange,
+                        onDragStart = {
+                            wasPlayingBeforeDrag = isPlaying
+                            if (isPlaying) {
+                                try {
+                                    vlcMediaPlayer.pause()
+                                    isPlaying = false
+                                } catch (e: Exception) {}
+                            }
+                        },
+                        onDragEnd = {
+                            if (wasPlayingBeforeDrag) {
+                                try {
+                                    vlcMediaPlayer.play()
+                                    isPlaying = true
+                                } catch (e: Exception) {}
+                            }
+                        },
                         onValueChange = {
                             val targetMs = it.toLong()
                             try {
-                                if (targetMs < duration) {
-                                    if (!vlcMediaPlayer.isPlaying) {
-                                        vlcMediaPlayer.play()
-                                        isPlaying = true
-                                    }
-                                    vlcMediaPlayer.time = targetMs
-                                } else {
-                                    vlcMediaPlayer.time = targetMs
-                                }
+                                vlcMediaPlayer.time = targetMs
                             } catch (e: Exception) {
                                 android.util.Log.e("CustomVideoPlayer", "Erro ao deslizar posição: ${e.message}", e)
                             }
                             currentPosition = targetMs
                         },
-                        valueRange = 0f..maxRange,
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(vertical = 4.dp)
@@ -1431,12 +1528,27 @@ fun MetallicSlider(
     value: Float,
     onValueChange: (Float) -> Unit,
     valueRange: ClosedFloatingPointRange<Float>,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onDragStart: (() -> Unit)? = null,
+    onDragEnd: (() -> Unit)? = null
 ) {
     val rangeStart = valueRange.start
     val rangeEnd = valueRange.endInclusive
     val totalRange = (rangeEnd - rangeStart).coerceAtLeast(1f)
-    val progressFraction = ((value - rangeStart) / totalRange).coerceIn(0f, 1f)
+    val realProgressFraction = ((value - rangeStart) / totalRange).coerceIn(0f, 1f)
+
+    var isDragging by remember { mutableStateOf(false) }
+    var dragFraction by remember { mutableStateOf(0f) }
+
+    val progressFraction = if (isDragging) dragFraction else realProgressFraction
+
+    // Use rememberUpdatedState to prevent pointerInput cancellation while keeping values fresh
+    val currentRangeStart by rememberUpdatedState(rangeStart)
+    val currentTotalRange by rememberUpdatedState(totalRange)
+    val currentRealProgressFraction by rememberUpdatedState(realProgressFraction)
+    val currentOnValueChange by rememberUpdatedState(onValueChange)
+    val currentOnDragStart by rememberUpdatedState(onDragStart)
+    val currentOnDragEnd by rememberUpdatedState(onDragEnd)
 
     BoxWithConstraints(
         modifier = modifier
@@ -1444,34 +1556,45 @@ fun MetallicSlider(
             .height(28.dp),
         contentAlignment = Alignment.CenterStart
     ) {
-        val widthPx = constraints.maxWidth.toFloat()
+        val widthPx = constraints.maxWidth.toFloat().coerceAtLeast(1f)
         
-        fun updatePosition(offsetX: Float) {
-            val fraction = (offsetX / widthPx).coerceIn(0f, 1f)
-            val newValue = rangeStart + (fraction * totalRange)
-            onValueChange(newValue)
-        }
-
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(28.dp)
                 .pointerInput(widthPx) {
                     detectTapGestures(
-                        onPress = { offset ->
-                            updatePosition(offset.x)
+                        onTap = { offset ->
+                            val fraction = (offset.x / widthPx).coerceIn(0f, 1f)
+                            val targetVal = currentRangeStart + (fraction * currentTotalRange)
+                            currentOnValueChange(targetVal)
                         }
                     )
                 }
                 .pointerInput(widthPx) {
                     detectHorizontalDragGestures(
-                        onDragStart = { },
-                        onDragEnd = { },
-                        onDragCancel = { },
+                        onDragStart = {
+                            isDragging = true
+                            dragFraction = currentRealProgressFraction
+                            currentOnDragStart?.invoke()
+                        },
+                        onDragEnd = {
+                            isDragging = false
+                            val targetVal = currentRangeStart + (dragFraction * currentTotalRange)
+                            currentOnValueChange(targetVal)
+                            currentOnDragEnd?.invoke()
+                        },
+                        onDragCancel = {
+                            isDragging = false
+                            currentOnDragEnd?.invoke()
+                        },
                         onHorizontalDrag = { _, dragAmount ->
-                            val currentOffset = progressFraction * widthPx
+                            val currentOffset = dragFraction * widthPx
                             val targetOffset = currentOffset + dragAmount
-                            updatePosition(targetOffset)
+                            val nextFraction = (targetOffset / widthPx).coerceIn(0f, 1f)
+                            dragFraction = nextFraction
+                            val targetVal = currentRangeStart + (nextFraction * currentTotalRange)
+                            currentOnValueChange(targetVal)
                         }
                     )
                 }

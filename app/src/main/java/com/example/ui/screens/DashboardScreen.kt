@@ -1,5 +1,6 @@
 package com.example.ui.screens
 
+import android.os.Build
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -62,6 +63,41 @@ fun DashboardScreen(
     val isImporting by viewModel.isImporting.collectAsState()
     val titleLogoType by viewModel.titleLogoType.collectAsState()
     val customLogoPath by viewModel.customLogoPath.collectAsState()
+    val leituraTotal by viewModel.leituraTotal.collectAsState()
+
+    val neededPermission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        android.Manifest.permission.READ_MEDIA_VIDEO
+    } else {
+        android.Manifest.permission.READ_EXTERNAL_STORAGE
+    }
+
+    var hasScanPermission by remember(leituraTotal) {
+        mutableStateOf(
+            androidx.core.content.ContextCompat.checkSelfPermission(
+                context,
+                neededPermission
+            ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+        )
+    }
+
+    val permissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        hasScanPermission = isGranted
+        if (isGranted) {
+            viewModel.refreshScannedVideos()
+        }
+    }
+
+    LaunchedEffect(leituraTotal) {
+        if (leituraTotal) {
+            if (hasScanPermission) {
+                viewModel.refreshScannedVideos()
+            } else {
+                permissionLauncher.launch(neededPermission)
+            }
+        }
+    }
 
     // UI state
     var showAddDialog by remember { mutableStateOf(false) }
@@ -328,19 +364,25 @@ fun DashboardScreen(
         floatingActionButton = {
             // Dynamic Floating Action Button that glows based on LED Theme Mode
             ExtendedFloatingActionButton(
-                onClick = { showAddDialog = true },
+                onClick = {
+                    if (leituraTotal) {
+                        viewModel.refreshScannedVideos()
+                    } else {
+                        showAddDialog = true
+                    }
+                },
                 containerColor = if (isLedMode) DarkSurface else activeAccentColor,
                 contentColor = if (isLedMode) activeAccentColor else Black,
                 icon = { 
                     Icon(
-                        Icons.Default.Add, 
-                        contentDescription = "Carregar Vídeo Off-line",
+                        imageVector = if (leituraTotal) Icons.Default.Refresh else Icons.Default.Add, 
+                        contentDescription = if (leituraTotal) "Atualizar Vídeos Escaneados" else "Carregar Vídeo Off-line",
                         tint = if (isLedMode) activeAccentColor else Black
                     ) 
                 },
                 text = { 
                     Text(
-                        "Carregar Vídeo", 
+                        text = if (leituraTotal) "Escaneamento" else "Carregar Vídeo", 
                         fontWeight = FontWeight.Bold, 
                         fontSize = 14.sp,
                         color = if (isLedMode) activeAccentColor else Black
@@ -384,10 +426,63 @@ fun DashboardScreen(
                 },
                 label = "AbasPrincipais"
             ) { tab ->
-                when (tab) {
-                    0 -> {
-                        // VÍDEOS TAB
-                        if (videos.isEmpty()) {
+                if (leituraTotal && !hasScanPermission) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(24.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Folder,
+                            contentDescription = "Permissão de Mídia",
+                            tint = activeAccentColor.copy(alpha = 0.6f),
+                            modifier = Modifier.size(80.dp)
+                        )
+                        Spacer(modifier = Modifier.height(20.dp))
+                        Text(
+                            text = "Acesso aos Arquivos de Vídeo",
+                            color = Color.White,
+                            fontSize = 20.sp,
+                            fontWeight = FontWeight.Bold,
+                            textAlign = TextAlign.Center
+                        )
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Text(
+                            text = "O modo Leitura Total está ativo. Para listar todos os arquivos de vídeo locais do seu celular diretamente pelas pastas de origem sem precisar importá-los, conceda a permissão necessária.",
+                            color = LightGray,
+                            fontSize = 14.sp,
+                            lineHeight = 20.sp,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.padding(horizontal = 16.dp)
+                        )
+                        Spacer(modifier = Modifier.height(30.dp))
+                        Button(
+                            onClick = {
+                                permissionLauncher.launch(neededPermission)
+                            },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = activeAccentColor,
+                                contentColor = Black
+                            ),
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier
+                                .fillMaxWidth(0.8f)
+                                .height(48.dp)
+                        ) {
+                            Text(
+                                "Conceder Permissão",
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                } else {
+                    when (tab) {
+                        0 -> {
+                            // VÍDEOS TAB
+                            if (videos.isEmpty()) {
                             Column(
                                 modifier = Modifier
                                     .fillMaxSize()
@@ -1189,6 +1284,7 @@ fun DashboardScreen(
                 }
             }
         }
+    }
     }
 
     // Modal Import Dialog with pristine formatting (Local Files)

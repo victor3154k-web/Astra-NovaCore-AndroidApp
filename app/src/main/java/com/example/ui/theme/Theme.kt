@@ -11,6 +11,7 @@ import androidx.compose.animation.core.animateFloat
 import com.example.ui.VideoViewModel
 
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.composed
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Paint
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
@@ -18,6 +19,7 @@ import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.runtime.remember
 
 private val CustomDarkColorScheme = darkColorScheme(
     primary = GoldMetallic,
@@ -186,26 +188,32 @@ fun Modifier.ledGlow(
     borderRadius: Dp = 12.dp,
     glowRadius: Dp = 10.dp,
     enabled: Boolean = true
-): Modifier = if (!enabled) this else this.drawBehind {
-    drawIntoCanvas { canvas ->
-        val paint = Paint().asFrameworkPaint().apply {
-            this.color = android.graphics.Color.TRANSPARENT
-            this.setShadowLayer(
+): Modifier = if (!enabled) this else composed {
+    val frameworkPaint = remember {
+        android.graphics.Paint().apply {
+            isAntiAlias = true
+            style = android.graphics.Paint.Style.FILL
+        }
+    }
+    this.drawBehind {
+        drawIntoCanvas { canvas ->
+            frameworkPaint.color = android.graphics.Color.TRANSPARENT
+            frameworkPaint.setShadowLayer(
                 glowRadius.toPx(),
                 0f,
                 0f,
                 color.toArgb()
             )
+            canvas.nativeCanvas.drawRoundRect(
+                0f,
+                0f,
+                size.width,
+                size.height,
+                borderRadius.toPx(),
+                borderRadius.toPx(),
+                frameworkPaint
+            )
         }
-        canvas.nativeCanvas.drawRoundRect(
-            0f,
-            0f,
-            size.width,
-            size.height,
-            borderRadius.toPx(),
-            borderRadius.toPx(),
-            paint
-        )
     }
 }
 
@@ -230,22 +238,27 @@ fun Modifier.rememberLedGlow(
             label = "GlowMultiplier"
         )
     } else {
-        androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(1.0f) }
+        remember { androidx.compose.runtime.mutableStateOf(1.0f) }
     }
     
     val currentRadiusSpec = baseGlowRadius * multiplier
     
+    val frameworkPaint = remember {
+        android.graphics.Paint().apply {
+            isAntiAlias = true
+            style = android.graphics.Paint.Style.FILL
+        }
+    }
+    
     return this.drawBehind {
         drawIntoCanvas { canvas ->
-            val paint = Paint().asFrameworkPaint().apply {
-                this.color = android.graphics.Color.TRANSPARENT
-                this.setShadowLayer(
-                    currentRadiusSpec.toPx(),
-                    0f,
-                    0f,
-                    color.toArgb()
-                )
-            }
+            frameworkPaint.color = android.graphics.Color.TRANSPARENT
+            frameworkPaint.setShadowLayer(
+                currentRadiusSpec.toPx(),
+                0f,
+                0f,
+                color.toArgb()
+            )
             canvas.nativeCanvas.drawRoundRect(
                 0f,
                 0f,
@@ -253,7 +266,7 @@ fun Modifier.rememberLedGlow(
                 size.height,
                 borderRadius.toPx(),
                 borderRadius.toPx(),
-                paint
+                frameworkPaint
             )
         }
     }

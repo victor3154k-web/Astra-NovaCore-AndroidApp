@@ -57,6 +57,7 @@ fun SettingsScreen(
 ) {
     val activeAccentColor = rememberDynamicAccentColor(viewModel)
     val videoAutoRepeat by viewModel.videoAutoRepeat.collectAsState()
+    val leituraTotal by viewModel.leituraTotal.collectAsState()
     val currentThemeState by viewModel.currentTheme.collectAsState()
     val isLedMode = remember(currentThemeState) { currentThemeState.startsWith("led_") }
 
@@ -76,6 +77,16 @@ fun SettingsScreen(
         if (expandThemesInSettings) {
             themesExpanded = true
             viewModel.setExpandThemesInSettings(false)
+        }
+    }
+
+    val permissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (isGranted) {
+            viewModel.setLeituraTotal(true)
+        } else {
+            viewModel.setLeituraTotal(false)
         }
     }
 
@@ -230,6 +241,73 @@ fun SettingsScreen(
                     Switch(
                         checked = videoAutoRepeat,
                         onCheckedChange = { viewModel.setVideoAutoRepeat(it) },
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = Color.Black,
+                            checkedTrackColor = activeAccentColor,
+                            uncheckedThumbColor = Color.LightGray,
+                            uncheckedTrackColor = Color.White.copy(alpha = 0.08f),
+                            uncheckedBorderColor = Color.White.copy(alpha = 0.15f)
+                        ),
+                        modifier = Modifier.minimumInteractiveComponentSize()
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(14.dp))
+
+            // Row for "Leitura Total" (Full Read Mode)
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(Color.White.copy(alpha = 0.04f), RoundedCornerShape(12.dp))
+                    .border(0.5.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(12.dp))
+                    .padding(horizontal = 16.dp, vertical = 12.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text(
+                            text = "Leitura Total",
+                            color = Color.White,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = "Mostra todas as pastas e arquivos de vídeo locais do seu celular diretamente",
+                            color = LightGray,
+                            fontSize = 12.sp,
+                            lineHeight = 16.sp
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.width(16.dp))
+
+                    Switch(
+                        checked = leituraTotal,
+                        onCheckedChange = { enabled ->
+                            if (enabled) {
+                                val neededPermission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                                    android.Manifest.permission.READ_MEDIA_VIDEO
+                                } else {
+                                    android.Manifest.permission.READ_EXTERNAL_STORAGE
+                                }
+                                val hasPermission = androidx.core.content.ContextCompat.checkSelfPermission(
+                                    context,
+                                    neededPermission
+                                ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+                                
+                                if (hasPermission) {
+                                    viewModel.setLeituraTotal(true)
+                                } else {
+                                    permissionLauncher.launch(neededPermission)
+                                }
+                            } else {
+                                viewModel.setLeituraTotal(false)
+                            }
+                        },
                         colors = SwitchDefaults.colors(
                             checkedThumbColor = Color.Black,
                             checkedTrackColor = activeAccentColor,
