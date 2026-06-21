@@ -1,8 +1,10 @@
 package com.example.data
 
 import android.content.Context
+import android.graphics.Bitmap
 import android.media.MediaMetadataRetriever
 import android.net.Uri
+import android.os.Build
 import android.os.ParcelFileDescriptor
 import android.util.Log
 import kotlinx.coroutines.Dispatchers
@@ -182,14 +184,62 @@ class VideoRepository(
             } else {
                 retriever.setDataSource(context, Uri.parse(videoPath))
             }
-            val bitmap = retriever.getFrameAtTime(1000000) // Frame at 1s
-            retriever.release()
-
-            if (bitmap != null) {
-                FileOutputStream(destFile).use { out ->
-                    bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 75, out)
+            
+            var bitmap: Bitmap? = null
+            
+            // Try scaled frame first (API 27+)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+                try {
+                    bitmap = retriever.getScaledFrameAtTime(-1, MediaMetadataRetriever.OPTION_CLOSEST_SYNC, 640, 480)
+                } catch (e: Exception) {
+                    Log.d("VideoRepository", "getScaledFrameAtTime -1 failed: $e")
+                }
+                if (bitmap == null) {
+                    try {
+                        bitmap = retriever.getScaledFrameAtTime(1000000, MediaMetadataRetriever.OPTION_CLOSEST_SYNC, 640, 480)
+                    } catch (e: Exception) {
+                        Log.d("VideoRepository", "getScaledFrameAtTime 1s failed: $e")
+                    }
                 }
             }
+            
+            // Fallback to normal keyframe
+            if (bitmap == null) {
+                try {
+                    bitmap = retriever.getFrameAtTime(-1)
+                } catch (e: Exception) {
+                    Log.d("VideoRepository", "getFrameAtTime -1 failed: $e")
+                }
+            }
+            if (bitmap == null) {
+                try {
+                    bitmap = retriever.getFrameAtTime(1000000)
+                } catch (e: Exception) {
+                    Log.d("VideoRepository", "getFrameAtTime 1s failed: $e")
+                }
+            }
+            
+            try {
+                retriever.release()
+            } catch (e: Exception) {}
+
+            if (bitmap != null) {
+                // Resize if needed to fit 640px bounding box
+                val finalBmp = if (bitmap.width > 960 || bitmap.height > 720) {
+                    val aspectRatio = bitmap.width.toFloat() / bitmap.height.toFloat()
+                    val targetWidth = 640
+                    val targetHeight = (640 / aspectRatio).toInt().coerceAtLeast(1)
+                    Bitmap.createScaledBitmap(bitmap, targetWidth, targetHeight, true)
+                } else {
+                    bitmap
+                }
+                
+                FileOutputStream(destFile).use { out ->
+                    finalBmp.compress(android.graphics.Bitmap.CompressFormat.JPEG, 85, out)
+                }
+            }
+        } catch (e: java.lang.IllegalArgumentException) {
+            Log.e("VideoRepository", "DataSource selection failed for thumbnail: ${e.message}")
         } catch (e: Exception) {
             Log.e("VideoRepository", "Could not extract thumbnail: $e")
         }

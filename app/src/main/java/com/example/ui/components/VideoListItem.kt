@@ -31,6 +31,7 @@ import com.example.ui.theme.DarkSurface
 import com.example.ui.theme.GoldMetallic
 import com.example.ui.theme.MediumGray
 import java.io.File
+import java.io.FileOutputStream
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.media.MediaMetadataRetriever
@@ -49,23 +50,38 @@ fun rememberVideoThumbnail(video: SavedVideo): Bitmap? {
             try {
                 // 1. Try local cache file
                 val cachedFile = File(context.filesDir, "thumbnails/thumb_${video.id}.jpg")
-                if (cachedFile.exists()) {
-                    val bmp = BitmapFactory.decodeFile(cachedFile.absolutePath)
-                    if (bmp != null) {
-                        withContext(Dispatchers.Main) {
-                            value = bmp
+                if (cachedFile.exists() && cachedFile.length() > 0) {
+                    try {
+                        val bmp = BitmapFactory.decodeFile(cachedFile.absolutePath)
+                        if (bmp != null) {
+                            withContext(Dispatchers.Main) {
+                                value = bmp
+                            }
+                            return@withContext
                         }
-                        return@withContext
+                    } catch (e: Exception) {
+                        android.util.Log.e("VideoListItem", "Error decoding cached thumbnail: ${e.message}")
                     }
                 }
 
-                // 2. Try MediaStore or content URI loading
+                // 2. Try MediaStore or content URI loading on Android Q+
                 if (video.localUri.startsWith("content://")) {
                     val uri = Uri.parse(video.localUri)
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                         try {
-                            val bmp = context.contentResolver.loadThumbnail(uri, Size(320, 240), null)
+                            val bmp = context.contentResolver.loadThumbnail(uri, Size(640, 480), null)
                             if (bmp != null) {
+                                // Cache it so next time we load instantly
+                                try {
+                                    val thumbsDir = File(context.filesDir, "thumbnails").apply { mkdirs() }
+                                    val destFile = File(thumbsDir, "thumb_${video.id}.jpg")
+                                    FileOutputStream(destFile).use { out ->
+                                        bmp.compress(Bitmap.CompressFormat.JPEG, 85, out)
+                                    }
+                                } catch (ce: Exception) {
+                                    android.util.Log.e("VideoListItem", "Error compressing/saving loadThumbnail resource: ${ce.message}")
+                                }
+
                                 withContext(Dispatchers.Main) {
                                     value = bmp
                                 }
@@ -88,16 +104,77 @@ fun rememberVideoThumbnail(video: SavedVideo): Bitmap? {
                     } else if (video.localUri.startsWith("http://") || video.localUri.startsWith("https://")) {
                         retriever.setDataSource(video.localUri, HashMap<String, String>())
                     } else if (video.localUri.startsWith("rtsp://") || video.localUri.startsWith("rtmp://")) {
-                        // RTSP/RTMP doesn't support easy metadata retrieval directly in standard MediaMetadataRetriever
+                        // RTSP/RTMP doesn't support easy metadata retrieval directly
                     } else {
                         retriever.setDataSource(video.localUri)
                     }
-                    val bmp = retriever.getFrameAtTime(1000000) // At 1 second
-                    if (bmp != null) {
-                        withContext(Dispatchers.Main) {
-                            value = bmp
+                    
+                    var bmp: Bitmap? = null
+                    
+                    // A. Try getting a pre-scaled frame at first frame / sync frame (O_MR1+)
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+                        try {
+                            bmp = retriever.getScaledFrameAtTime(-1, MediaMetadataRetriever.OPTION_CLOSEST_SYNC, 640, 480)
+                        } catch (e: Exception) {
+                            android.util.Log.d("VideoListItem", "getScaledFrameAtTime -1 failed: ${e.message}")
+                        }
+                        if (bmp == null) {
+                            try {
+                                bmp = retriever.getScaledFrameAtTime(1000000, MediaMetadataRetriever.OPTION_CLOSEST_SYNC, 640, 480)
+                            } catch (e: Exception) {
+                                android.util.Log.d("VideoListItem", "getScaledFrameAtTime 1s failed: ${e.message}")
+                            }
                         }
                     }
+                    
+                    // B. Fallback to full-resolution frames and resize manually
+                    if (bmp == null) {
+                        try {
+                            bmp = retriever.getFrameAtTime(-1)
+                        } catch (e: Exception) {
+                            android.util.Log.d("VideoListItem", "getFrameAtTime -1 failed: ${e.message}")
+                        }
+                    }
+                    if (bmp == null) {
+                        try {
+                            bmp = retriever.getFrameAtTime(1000000)
+                        } catch (e: Exception) {
+                            android.util.Log.d("VideoListItem", "getFrameAtTime 1s failed: ${e.message}")
+                        }
+                    }
+                    
+                    try {
+                        retriever.release()
+                    } catch (e: Exception) {}
+
+                    if (bmp != null) {
+                        // Rescale if it is too massive because we want to safeguard low-end devices from memory exhaustion
+                        val finalBmp = if (bmp.width > 960 || bmp.height > 720) {
+                            val aspectRatio = bmp.width.toFloat() / bmp.height.toFloat()
+                            val targetWidth = 640
+                            val targetHeight = (640 / aspectRatio).toInt().coerceAtLeast(1)
+                            Bitmap.createScaledBitmap(bmp, targetWidth, targetHeight, true)
+                        } else {
+                            bmp
+                        }
+                        
+                        // Save this generated thumbnail to cache file
+                        try {
+                            val thumbsDir = File(context.filesDir, "thumbnails").apply { mkdirs() }
+                            val destFile = File(thumbsDir, "thumb_${video.id}.jpg")
+                            FileOutputStream(destFile).use { out ->
+                                finalBmp.compress(Bitmap.CompressFormat.JPEG, 85, out)
+                            }
+                        } catch (ce: Exception) {
+                            android.util.Log.e("VideoListItem", "Error saving retriever thumb: ${ce.message}")
+                        }
+
+                        withContext(Dispatchers.Main) {
+                            value = finalBmp
+                        }
+                    }
+                } catch (e: java.lang.IllegalArgumentException) {
+                    android.util.Log.e("VideoListItem", "DataSource selection failed: ${e.message}")
                 } catch (e: Exception) {
                     android.util.Log.d("VideoListItem", "MediaMetadataRetriever failed: ${e.message}")
                 } finally {

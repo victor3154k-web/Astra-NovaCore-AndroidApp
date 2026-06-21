@@ -50,7 +50,8 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 class LibVlcHolder(val libVlc: LibVLC, val mediaPlayer: MediaPlayer) : RememberObserver {
-    private var isReleased = false
+    var isReleased = false
+        private set
 
     override fun onRemembered() {}
 
@@ -66,14 +67,22 @@ class LibVlcHolder(val libVlc: LibVLC, val mediaPlayer: MediaPlayer) : RememberO
         if (!isReleased) {
             isReleased = true
             try {
+                mediaPlayer.getVLCVout().detachViews()
+            } catch (e: Exception) {}
+            try {
+                mediaPlayer.setEventListener(null)
+            } catch (e: Exception) {}
+            try {
                 if (mediaPlayer.isPlaying) {
                     mediaPlayer.stop()
                 }
+            } catch (e: Exception) {}
+            try {
                 mediaPlayer.release()
+            } catch (e: Exception) {}
+            try {
                 libVlc.release()
-            } catch (e: Exception) {
-                android.util.Log.e("CustomVideoPlayer", "Error releasing VLC holder: ${e.message}")
-            }
+            } catch (e: Exception) {}
         }
     }
 }
@@ -109,55 +118,34 @@ fun CustomVideoPlayer(
 
     // Initialize LibVLC dynamically based on decoderMode and activeLibrary using LibVlcHolder
     val vlcHolder = remember(decoderMode, activeLibrary) {
-        val cpuCores = prefs.getInt("cpu_cores_allocated", Runtime.getRuntime().availableProcessors())
-
         val options = ArrayList<String>()
         options.add("--no-sub-autodetect-file")
+        options.add("--file-caching=2000")
+        options.add("--network-caching=2000")
         
-        // Optimize cache buffers (between 3000ms and 5000ms) to ensure smooth playback of 2K/4K high-bitrate videos without stuttering
-        options.add("--file-caching=5000")
-        options.add("--network-caching=5000")
-        options.add("--live-caching=3000")
-        
-        // Force hardware decoding optimization features across avcodec pipeline globally
-        options.add("--avcodec-hw=any")
-        
-        if (activeLibrary == "ffmpeg") {
-            if (decoderMode == "HW") {
-                // FFmpeg Hardware path: Use MediaCodec HW modules first, falling back to FFmpeg software avcodec pipeline
-                options.add("--codec=mediacodec_ndk,mediacodec_jni,avcodec,all")
-                options.add("--mediacodec-all-codecs")
-                options.add("--drop-late-frames")
-                options.add("--skip-frames")
-                options.add("--avcodec-threads=$cpuCores")
-            } else {
-                // FFmpeg Software path: Force software avcodec decoding module with dynamic CPU thread scaling
-                options.add("--codec=avcodec,all")
-                options.add("--avcodec-threads=$cpuCores") // Dynamically allocate exact selected core count
-                options.add("--avcodec-skiploopfilter=4") // Skip loop filter on complex frames for fast, non-blocking rendering
-                options.add("--avcodec-fast") // Optimized speed-ups for async rendering
-                options.add("--drop-late-frames") // Prioritize audio speed and drop late frames
-                options.add("--skip-frames") // Prevent frame jams under high payload
-            }
-        } else {
-            if (decoderMode == "HW") {
-                // MobileVLCKit Hardware path: Force hardware acceleration modules (MediaCodec)
-                options.add("--codec=mediacodec_ndk,mediacodec_jni,all")
-                options.add("--mediacodec-all-codecs")
-                options.add("--drop-late-frames")
-                options.add("--skip-frames")
-                options.add("--avcodec-threads=$cpuCores")
-            } else {
-                // MobileVLCKit Software path: software-only decoding with threaded fallbacks
-                options.add("--codec=all")
-                options.add("--avcodec-threads=$cpuCores") // Dynamically allocate exact selected core count
-                options.add("--avcodec-skiploopfilter=4") // Skip loop filter when decoding slows down
-                options.add("--avcodec-fast") // Allow quick-decoding tweaks
-                options.add("--drop-late-frames") // Synchronize and drop extremely late video frames
-                options.add("--skip-frames") // Prevent system freeze on massive frame jams
+        var libVlcInstance: LibVLC? = null
+        try {
+            // First attempt: clean minimal configuration
+            libVlcInstance = LibVLC(context, options)
+        } catch (e: Exception) {
+            android.util.Log.e("CustomVideoPlayer", "Failed initializing LibVLC with custom options, retrying with simple options", e)
+            try {
+                // Second attempt: basic option only
+                val fallbackOptions = ArrayList<String>()
+                fallbackOptions.add("--no-sub-autodetect-file")
+                libVlcInstance = LibVLC(context, fallbackOptions)
+            } catch (ex: Exception) {
+                android.util.Log.e("CustomVideoPlayer", "Failed with basic options, retrying with completely empty options", ex)
+                try {
+                    // Third attempt: completely empty constructor
+                    libVlcInstance = LibVLC(context)
+                } catch (ex2: Exception) {
+                    android.util.Log.e("CustomVideoPlayer", "All LibVLC initialization attempts failed! Re-throwing block to allow UI error handling", ex2)
+                    throw ex2
+                }
             }
         }
-        val libVlcInstance = LibVLC(context, options)
+
         val mediaPlayerInstance = MediaPlayer(libVlcInstance)
         LibVlcHolder(libVlcInstance, mediaPlayerInstance)
     }
@@ -347,8 +335,9 @@ fun CustomVideoPlayer(
 
     // Load media item via LibVLC
     LaunchedEffect(video, vlcMediaPlayer) {
-        var pfd: android.os.ParcelFileDescriptor? = null
         try {
+            if (vlcHolder.isReleased) return@LaunchedEffect
+            
             // Configure LibVLC media
             val isRemoteMode = video.localUri.startsWith("http://") || 
                                video.localUri.startsWith("https://") || 
@@ -359,17 +348,7 @@ fun CustomVideoPlayer(
                 Media(libVlc, uri)
             } else {
                 if (video.localUri.startsWith("content://")) {
-                    var m: Media? = null
-                    try {
-                        val openedPfd = context.contentResolver.openFileDescriptor(uri, "r")
-                        pfd = openedPfd
-                        if (openedPfd != null) {
-                            m = Media(libVlc, openedPfd.fileDescriptor)
-                        }
-                    } catch (e: Exception) {
-                        android.util.Log.e("CustomVideoPlayer", "Erro abrindo FileDescriptor para content URI: ${e.message}", e)
-                    }
-                    m ?: Media(libVlc, uri)
+                    Media(libVlc, uri)
                 } else {
                     val file = java.io.File(video.localUri)
                     if (file.exists()) {
@@ -380,6 +359,55 @@ fun CustomVideoPlayer(
                 }
             }
             
+            if (vlcHolder.isReleased) {
+                media.release()
+                return@LaunchedEffect
+            }
+            
+            // Apply advanced caching, performance, and hardware decoding options dynamically per-session
+            val cpuCoresVal = prefs.getInt("cpu_cores_allocated", Runtime.getRuntime().availableProcessors())
+            media.addOption(":file-caching=5000")
+            media.addOption(":network-caching=5000")
+            media.addOption(":live-caching=3000")
+            media.addOption(":no-stats")
+            media.addOption(":no-osd")
+            media.addOption(":rtsp-tcp")
+            media.addOption(":clock-synchro=0")
+            
+            if (activeLibrary == "ffmpeg") {
+                if (decoderMode == "HW") {
+                    media.addOption(":codec=mediacodec_ndk,mediacodec_jni,avcodec,all")
+                    media.addOption(":mediacodec-all-codecs")
+                    media.addOption(":avcodec-hw=any")
+                    media.addOption(":drop-late-frames")
+                    media.addOption(":skip-frames")
+                    media.addOption(":avcodec-threads=$cpuCoresVal")
+                } else {
+                    media.addOption(":codec=avcodec,all")
+                    media.addOption(":avcodec-threads=$cpuCoresVal")
+                    media.addOption(":avcodec-skiploopfilter=4")
+                    media.addOption(":avcodec-fast")
+                    media.addOption(":drop-late-frames")
+                    media.addOption(":skip-frames")
+                }
+            } else {
+                if (decoderMode == "HW") {
+                    media.addOption(":codec=mediacodec_ndk,mediacodec_jni,all")
+                    media.addOption(":mediacodec-all-codecs")
+                    media.addOption(":avcodec-hw=any")
+                    media.addOption(":drop-late-frames")
+                    media.addOption(":skip-frames")
+                    media.addOption(":avcodec-threads=$cpuCoresVal")
+                } else {
+                    media.addOption(":codec=all")
+                    media.addOption(":avcodec-threads=$cpuCoresVal")
+                    media.addOption(":avcodec-skiploopfilter=4")
+                    media.addOption(":avcodec-fast")
+                    media.addOption(":drop-late-frames")
+                    media.addOption(":skip-frames")
+                }
+            }
+            
             vlcMediaPlayer.media = media
             media.release()
             
@@ -387,6 +415,7 @@ fun CustomVideoPlayer(
             
             // Wait slightly for player to initialize before setting position and options
             delay(250)
+            if (vlcHolder.isReleased) return@LaunchedEffect
             val totalDuration = if (duration > 0) duration else (if (video.durationMs > 0) video.durationMs else 1L)
             val posToSeek = if (currentPosition > 0) currentPosition else video.playbackPositionMs
             if (posToSeek > 0 && totalDuration > 0) {
@@ -395,24 +424,17 @@ fun CustomVideoPlayer(
             }
             vlcMediaPlayer.rate = playbackSpeed
             isPlaying = true
-
-            // Keep the fd open by suspending until the LaunchedEffect is cancelled/disposed
-            kotlinx.coroutines.awaitCancellation()
         } catch (e: Exception) {
             android.util.Log.e("CustomVideoPlayer", "Erro ao iniciar mídia no player: ${e.message}", e)
-        } finally {
-            try {
-                pfd?.close()
-            } catch (ex: Exception) {
-                android.util.Log.e("CustomVideoPlayer", "Erro ao fechar ParcelFileDescriptor: ${ex.message}")
-            }
         }
     }
 
     // Apply speed settings
     LaunchedEffect(vlcMediaPlayer, playbackSpeed) {
         try {
-            vlcMediaPlayer.rate = playbackSpeed
+            if (!vlcHolder.isReleased) {
+                vlcMediaPlayer.rate = playbackSpeed
+            }
         } catch (e: Exception) {
             android.util.Log.e("CustomVideoPlayer", "Erro ao alterar velocidade de reprodução: ${e.message}", e)
         }
@@ -421,7 +443,9 @@ fun CustomVideoPlayer(
     val closeAndSaveProgress: () -> Unit = {
         isPlaying = false
         try {
-            vlcMediaPlayer.pause()
+            if (!vlcHolder.isReleased) {
+                vlcMediaPlayer.pause()
+            }
         } catch (e: Exception) {}
         val isCompleted = duration > 0 && currentPosition >= (duration - 4000)
         val finalPosition = if (isCompleted) 0L else currentPosition
@@ -440,49 +464,56 @@ fun CustomVideoPlayer(
     // Listen for LibVLC events
     DisposableEffect(vlcMediaPlayer) {
         try {
-            vlcMediaPlayer.setEventListener { event ->
-                when (event.type) {
-                    MediaPlayer.Event.Playing -> {
-                        isPlaying = true
-                    }
-                    MediaPlayer.Event.Paused -> {
-                        isPlaying = false
-                    }
-                    MediaPlayer.Event.Stopped -> {
-                        isPlaying = false
-                    }
-                    MediaPlayer.Event.EndReached -> {
-                        isPlaying = false
-                        if (currentAutoRepeatEnabled) {
-                            coroutineScope.launch {
-                                try {
-                                    vlcMediaPlayer.stop()
-                                    delay(100)
-                                    vlcMediaPlayer.play()
-                                    isPlaying = true
-                                } catch (e: Exception) {}
-                            }
-                        } else {
-                            coroutineScope.launch {
-                                currentCloseAndSaveProgress()
+            if (!vlcHolder.isReleased) {
+                vlcMediaPlayer.setEventListener { event ->
+                    if (vlcHolder.isReleased) return@setEventListener
+                    when (event.type) {
+                        MediaPlayer.Event.Playing -> {
+                            isPlaying = true
+                        }
+                        MediaPlayer.Event.Paused -> {
+                            isPlaying = false
+                        }
+                        MediaPlayer.Event.Stopped -> {
+                            isPlaying = false
+                        }
+                        MediaPlayer.Event.EndReached -> {
+                            isPlaying = false
+                            if (currentAutoRepeatEnabled) {
+                                coroutineScope.launch {
+                                    try {
+                                        if (!vlcHolder.isReleased) {
+                                            vlcMediaPlayer.stop()
+                                            delay(100)
+                                            if (!vlcHolder.isReleased) {
+                                                vlcMediaPlayer.play()
+                                                isPlaying = true
+                                            }
+                                        }
+                                    } catch (e: Exception) {}
+                                }
+                            } else {
+                                coroutineScope.launch {
+                                    currentCloseAndSaveProgress()
+                                }
                             }
                         }
-                    }
-                    MediaPlayer.Event.TimeChanged -> {
-                        currentPosition = event.timeChanged
-                        onPlaybackPositionUpdate(video.id, event.timeChanged)
-                    }
-                    MediaPlayer.Event.LengthChanged -> {
-                        if (event.lengthChanged > 0) {
-                            duration = event.lengthChanged
+                        MediaPlayer.Event.TimeChanged -> {
+                            currentPosition = event.timeChanged
+                            onPlaybackPositionUpdate(video.id, event.timeChanged)
                         }
-                    }
-                    MediaPlayer.Event.EncounteredError -> {
-                        playbackError = PlayerNotification(
-                            title = "ERRO DE DECODIFICAÇÃO",
-                            message = "Falha crítica no reprodutor VLC/FFmpeg ao ler este formato.",
-                            isSuggestion = false
-                        )
+                        MediaPlayer.Event.LengthChanged -> {
+                            if (event.lengthChanged > 0) {
+                                duration = event.lengthChanged
+                            }
+                        }
+                        MediaPlayer.Event.EncounteredError -> {
+                            playbackError = PlayerNotification(
+                                title = "ERRO DE DECODIFICAÇÃO",
+                                message = "Falha crítica no reprodutor VLC/FFmpeg ao ler este formato.",
+                                isSuggestion = false
+                            )
+                        }
                     }
                 }
             }
@@ -491,8 +522,10 @@ fun CustomVideoPlayer(
         }
         onDispose {
             try {
-                vlcMediaPlayer.setEventListener(null)
-                vlcMediaPlayer.getVLCVout().detachViews()
+                if (!vlcHolder.isReleased) {
+                    vlcMediaPlayer.setEventListener(null)
+                    vlcMediaPlayer.getVLCVout().detachViews()
+                }
             } catch (e: Exception) {}
         }
     }
@@ -593,8 +626,8 @@ fun CustomVideoPlayer(
                          )
                          holder.addCallback(object : SurfaceHolder.Callback {
                              override fun surfaceCreated(holder: SurfaceHolder) {
-                                 vlcMediaPlayer.getVLCVout().setVideoView(this@apply)
-                                 vlcMediaPlayer.getVLCVout().attachViews()
+                                 if (!vlcHolder.isReleased) vlcMediaPlayer.getVLCVout().setVideoView(this@apply)
+                                 if (!vlcHolder.isReleased) vlcMediaPlayer.getVLCVout().attachViews()
                              }
 
                              override fun surfaceChanged(
@@ -603,10 +636,11 @@ fun CustomVideoPlayer(
                                  width: Int,
                                  height: Int
                              ) {
-                                 vlcMediaPlayer.getVLCVout().setWindowSize(width, height)
+                                 if (!vlcHolder.isReleased) vlcMediaPlayer.getVLCVout().setWindowSize(width, height)
                              }
 
                              override fun surfaceDestroyed(holder: SurfaceHolder) {
+                                  if (vlcHolder.isReleased) return
                                  try {
                                      if (vlcMediaPlayer.isPlaying) {
                                          vlcMediaPlayer.pause()
@@ -620,6 +654,7 @@ fun CustomVideoPlayer(
                      }
                  },
                  onRelease = {
+                      if (!vlcHolder.isReleased)
                      try {
                          vlcMediaPlayer.getVLCVout().detachViews()
                      } catch (e: Exception) {}
